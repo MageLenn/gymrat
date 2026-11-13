@@ -92,6 +92,7 @@
   const devById = (id) => S.devices.find((d) => d.id === id);
   const devPic = (d) => d.pic || (d.category === "cardio" ? (CARDIO[d.cardioType] || CARDIO.other).pic : MUSCLE_PIC[d.muscle] || "generic");
   const thumb = (d, cls = "") => `<div class="thumb ${cls}">${d && photos[d.id] ? `<img src="${photos[d.id]}" alt="">` : I.pic(d ? devPic(d) : "generic")}</div>`;
+  const trains = (d) => esc((d && (d.targets || d.muscle)) || "");
   const muscleList = () => [...new Set([...MUSCLES, ...S.devices.map((d) => d.muscle).filter(Boolean)])];
   const kraftDevices = () => S.devices.filter((d) => d.category !== "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
   const cardioDevices = () => S.devices.filter((d) => d.category === "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -338,7 +339,7 @@
         <button class="done-btn ${s.done ? "on" : ""}" data-act="toggleSet" data-e="${ei}" data-s="${si}" aria-label="Satz erledigt">${I.ui("check")}</button></div>`;
     }).join("");
     return `<section class="card ex">
-      <div class="ex-h">${thumb(d)}<div class="grow"><b style="display:block;line-height:1.25;overflow-wrap:anywhere">${esc(d.name)}</b><span class="muted small">${esc(d.muscle || "")}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
+      <div class="ex-h">${thumb(d)}<div class="grow"><b style="display:block;line-height:1.25;overflow-wrap:anywhere">${esc(d.name)}</b><span class="muted small">Trainiert: ${trains(d)}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
         <button class="icon-btn" data-act="infoToggle" data-e="${ei}" aria-label="Erklärung" ${d.info ? "" : "hidden"}>?</button>
         <button class="icon-btn" data-act="rmEntry" data-e="${ei}" aria-label="Gerät entfernen">${I.ui("trash")}</button></div>
       ${e.showInfo && d.info ? `<div class="hint">${esc(d.info)}</div>` : ""}
@@ -412,7 +413,7 @@
   // ---------- picker sheet (choose devices) ----------
   function pickerSheet() {
     const p = ui.pick; const list = kraftDevices().filter((d) => !p.muscle || d.muscle === p.muscle);
-    const rows = list.map((d) => `<button class="dev" data-act="pickToggle" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${esc(d.muscle || "")}</small></div><span class="check ${p.sel.includes(d.id) ? "on" : ""}">${p.sel.includes(d.id) ? I.ui("check") : ""}</span></button>`).join("");
+    const rows = list.map((d) => `<button class="dev" data-act="pickToggle" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div><span class="check ${p.sel.includes(d.id) ? "on" : ""}">${p.sel.includes(d.id) ? I.ui("check") : ""}</span></button>`).join("");
     openSheet(`<h3>${esc(p.title)}</h3>
       <label class="field"><span>Muskelgruppe</span><select id="pickMuscle" data-change="pickMuscle"><option value="">Alle Muskelgruppen</option>${opts(muscleList(), p.muscle)}</select></label>
       <div class="dev-list">${rows || `<div class="empty"><b>Keine Geräte</b>Lege zuerst Geräte an.</div>`}</div>
@@ -432,7 +433,7 @@
         return;
       }
       const ids = plan.devices;
-      const rows = ids.map(devById).filter(Boolean).map((d, i) => `<div class="dev"><button class="dev-open" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${esc(d.muscle || "")}${d.defaultSets && d.defaultSets.length ? ` · ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}</small></div></button>
+      const rows = ids.map(devById).filter(Boolean).map((d, i) => `<div class="dev"><button class="dev-open" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}${d.defaultSets && d.defaultSets.length ? ` · ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}</small></div></button>
         <button class="icon-btn" data-act="tplUp" data-i="${i}" aria-label="Nach oben" ${i ? "" : "disabled"} style="transform:rotate(-90deg)">${I.ui("chevron")}</button>
         <button class="icon-btn" data-act="tplRm" data-i="${i}" aria-label="Entfernen">${I.ui("close")}</button></div>`).join("");
       view.innerHTML = `${seg}
@@ -449,7 +450,7 @@
     const list = (isCardio ? cardioDevices() : kraftDevices()).filter((d) => isCardio || !ui.devMuscle || d.muscle === ui.devMuscle);
     const rows = list.map((d) => {
       const b = !isCardio && bestOf(d.id);
-      const sub = isCardio ? (CARDIO[d.cardioType] || CARDIO.other).l : `${esc(d.muscle || "")}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
+      const sub = isCardio ? `${(CARDIO[d.cardioType] || CARDIO.other).l}${d.targets ? ` · ${trains(d)}` : ""}` : `${trains(d)}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
       return `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${sub}</small></div>${b ? `<span class="chip gold num">${nf(b.w)} kg</span>` : ""}${I.ui("chevron")}</button>`;
     }).join("");
     view.innerHTML = `${seg}
@@ -487,6 +488,7 @@
            <div class="grid2"><label class="field"><span>Wdh. von</span><select id="dRepMin" data-change="draft" data-k="repMin" data-num="1">${opts(range(1, 30), d.repMin)}</select></label>
            <label class="field"><span>Wdh. bis</span><select id="dRepMax" data-change="draft" data-k="repMax" data-num="1">${opts(range(1, 30), d.repMax)}</select></label></div>
            <div class="muted small">Schaffst du in allen Sätzen „Wdh. bis“, schlägt GymRat beim nächsten Mal 2,5 kg mehr vor.</div>`}
+      <label class="field"><span>Trainiert</span><input type="text" id="dTargets" data-input="draft" data-k="targets" value="${esc(d.targets || "")}" placeholder="z. B. Brust, vordere Schulter, Trizeps" autocomplete="off"></label>
       <label class="field"><span>Erklärung</span><textarea id="dInfo" data-input="draft" data-k="info" placeholder="Kurz: Wie wird das Gerät benutzt?">${esc(d.info || "")}</textarea></label>
       <label class="field"><span>Zeichnung</span><select id="dPic" data-change="draft" data-k="pic" data-redraw="1"><option value="">Automatisch</option>${opts(I.picList.map((p) => ({ v: p.key, l: p.label })), d.pic || "")}</select></label>
       ${b ? `<div class="card"><div class="card-h"><h2>Fortschritt</h2><span class="chip gold">${I.ui("trophy")} ${nf(b.w)} kg × ${b.r}</span></div>${chart || `<div class="muted small">${ss.length} Training bisher.</div>`}</div>` : ""}
@@ -497,7 +499,7 @@
   function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])] }; deviceSheet(); }
   // Re-render the open device sheet, keeping typed text and scroll position.
   function redrawDevice() {
-    ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value;
+    ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value; if ($("#dTargets")) ui.draft.targets = $("#dTargets").value;
     const y = $(".sheet-panel").scrollTop; deviceSheet(); $(".sheet-panel").scrollTop = y;
   }
 
@@ -578,7 +580,7 @@
     const ct = x.cardioType || x.art || ""; const ctKey = CARDIO[ct] ? ct : (Object.entries(CARDIO).find(([, c]) => c.l.toLowerCase() === String(ct).toLowerCase()) || ["other"])[0];
     return { id: uid(), name: String(x.name || "").trim(), category: cat, muscle: x.muscle || x.muskelgruppe || (cat === "kraft" ? "Ganzkörper" : ""),
       repMin: Number(x.repMin) || 8, repMax: Number(x.repMax) || 12, cardioType: cat === "cardio" ? ctKey : undefined, pic: x.pic || "",
-      info: String(x.info || x.erklaerung || "").trim(), defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
+      info: String(x.info || x.erklaerung || "").trim(), targets: String(x.targets || x.trainiert || "").trim(), defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
   }
   function importDevices(json) {
     const arr = Array.isArray(json) ? json : json.devices || json.geraete || [];
@@ -603,7 +605,7 @@
     const byName = new Map(S.devices.map((d) => [d.name.toLowerCase(), d]));
     for (const x of seed.devices) {
       const have = byName.get(x.name.toLowerCase());
-      if (have) { if (!have.info && x.info) have.info = x.info; continue; }
+      if (have) { if (!have.info && x.info) have.info = x.info; if (!have.targets && x.targets) have.targets = x.targets; continue; }
       const d = toDevice(x); S.devices.push(d); byName.set(d.name.toLowerCase(), d);
     }
     for (const p of seed.plans) mergePlan(p, byName);
@@ -693,7 +695,7 @@
     hideInstall: () => { try { localStorage.setItem("gymrat-hide-install", "1"); } catch {} render(); },
     infoToggle: (el) => { const e = S.active.entries[+el.dataset.e]; e.showInfo = !e.showInfo; render(); },
     saveDevice: async (_, opt = {}) => {
-      const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim();
+      const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim(); d.targets = ($("#dTargets") ? $("#dTargets").value : d.targets || "").trim();
       if (!d.name && opt.dismiss && !devById(d.id)) { closeSheet(); return; }
       if (!d.name) { toast("Gib dem Gerät einen Namen"); $("#dName").focus(); return; }
       if (d.category === "kraft" && d.repMin > d.repMax) { toast("„Wdh. von“ muss kleiner sein als „Wdh. bis“"); return; }
