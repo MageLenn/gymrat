@@ -315,3 +315,4 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
   padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: inherit;
 }
 .hit small { color: var(--muted); font-size: 12px; }
+.body-fig .bm[data-act] { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }

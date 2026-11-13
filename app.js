@@ -261,7 +261,7 @@
     document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === ui.tab));
     ({ start: vStart, training: vTraining, geraete: vDevices, info: vInfo, statistik: vStats })[ui.tab]();
   }
-  function go(tab) { if (tab === "info" && ui.tab === "info") { ui.infoGroup = ""; ui.infoPart = ""; ui.infoQ = ""; } ui.tab = tab; render(); window.scrollTo(0, 0); }
+  function go(tab) { if (tab === "info" && ui.tab === "info") { ui.infoGroup = ""; ui.infoParts = []; ui.infoQ = ""; } ui.tab = tab; render(); window.scrollTo(0, 0); }
 
   function openSheet(html) {
     const wasClosed = $("#sheet").hidden; ui.sheetKind = null;
@@ -568,8 +568,9 @@
   // ---------- INFO (muscle chart) ----------
   // Start view is the whole body; a dropdown picks a group, tapping a muscle or searching filters to it.
   const ALL_PARTS = () => Object.values(PARTS).flat();
-  function litParts(group, part) {
-    if (part) return new Set([part]);
+  // Lit muscles: the picked ones, or the whole group (Ganzkörper = everything) when nothing is picked.
+  function litParts(group, picked) {
+    if (picked.length) return new Set(picked);
     if (!group || group === "Ganzkörper") return new Set(ALL_PARTS());
     return new Set(PARTS[group] || []);
   }
@@ -583,11 +584,22 @@
     }
     return out;
   }
-  // A device trains a muscle if it lists it, or lists the group without naming single muscles of it.
-  function devTrains(d, group, part) {
-    if (part) return devLit(d).has(part);
-    if (!group || group === "Ganzkörper") return d.category !== "cardio" || devMuscles(d).length > 0;
-    return devMuscles(d).includes(group);
+  // How well a device fits the picked muscles: 2 = names the muscle, 1 = names its group without detail.
+  // Whole-body-only devices (e.g. Air Bike) never count for a single muscle.
+  function muscleHit(d, m) {
+    const g = PART_GROUP[m]; if (!devMuscles(d).includes(g)) return 0;
+    const ps = devParts(d).filter((x) => PART_GROUP[x] === g);
+    return ps.includes(m) ? 2 : ps.length ? 0 : 1;
+  }
+  function infoDevices(group, picked) {
+    const all = S.devices.slice();
+    if (!picked.length) {
+      const list = !group || group === "Ganzkörper" ? all.filter((d) => devMuscles(d).length) : all.filter((d) => devMuscles(d).includes(group));
+      return list.sort((a, b) => a.name.localeCompare(b.name, "de")).map((d) => ({ d, n: 0 }));
+    }
+    return all.map((d) => { const hits = picked.map((m) => muscleHit(d, m)); return { d, n: hits.filter(Boolean).length, score: hits.reduce((x, y) => x + y, 0) }; })
+      .filter((x) => x.n > 0)
+      .sort((a, b) => b.n - a.n || b.score - a.score || a.d.name.localeCompare(b.d.name, "de"));
   }
   // Search: muscle and group names plus everyday words.
   const SYNONYMS = {
@@ -614,15 +626,14 @@
   function vInfo() {
     const g = ui.infoGroup || "Ganzkörper";
     const parts = g === "Ganzkörper" ? [] : PARTS[g] || [];
-    const part = ui.infoPart || ""; const on = litParts(g, part);
+    const picked = (ui.infoParts || []).filter((x) => PART_GROUP[x]); const on = litParts(g, picked);
     setTop("Info");
     const groups = MUSCLES.filter((m) => m !== "Ausdauer");
     const chips = parts.length ? `<div class="mchips">
-      <button type="button" class="mchip ${part ? "" : "on"}" data-act="infoPart" data-p="">Alle</button>
-      ${parts.map((x) => `<button type="button" class="mchip ${part === x ? "on" : ""}" data-act="infoPart" data-p="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : "";
-    const devs = S.devices.filter((d) => devTrains(d, g, part)).sort((a, b) => a.name.localeCompare(b.name, "de"));
-    const front = [...on].some((x) => BODY.has("front", x)), back = [...on].some((x) => BODY.has("back", x));
-    const label = part || (g === "Ganzkörper" ? "Ganzer Körper" : g);
+      <button type="button" class="mchip ${parts.some((x) => picked.includes(x)) ? "" : "on"}" data-act="infoClear">Alle</button>
+      ${parts.map((x) => `<button type="button" class="mchip ${picked.includes(x) ? "on" : ""}" data-act="infoPart" data-p="${esc(x)}" aria-pressed="${picked.includes(x)}">${esc(x)}</button>`).join("")}</div>` : "";
+    const devs = infoDevices(g, picked);
+    const label = picked.length ? picked.join(", ") : g === "Ganzkörper" ? "Ganzer Körper" : g;
     view.innerHTML = `
       <div class="field"><span>Muskel suchen</span><input type="search" id="infoSearch" data-input="infoSearch" placeholder="z. B. Bizeps, Lat, Po" value="${esc(ui.infoQ || "")}" autocomplete="off"></div>
       <div id="infoHits" class="hits">${searchHits(ui.infoQ || "")}</div>
@@ -630,12 +641,13 @@
       ${chips}
       <section class="card"><div class="figs"><figure>${BODY.figure("front", on, "infoPart")}<figcaption>Vorne</figcaption></figure>
         <figure>${BODY.figure("back", on, "infoPart")}<figcaption>Hinten</figcaption></figure></div>
-        <div class="row"><div class="grow small"><b>${esc(label)}</b>${part ? ` · ${esc(PART_GROUP[part])} · ${front && back ? "vorne und hinten" : front ? "vorne" : "hinten"}` : ""}</div>
-          ${part ? `<button class="btn small" data-act="infoPart" data-p="">Filter aufheben</button>` : ""}</div>
-        <div class="muted small">Tippe auf einen Muskel in der Abbildung, um nach ihm zu filtern.</div></section>
-      <section class="card"><div class="card-h"><h2>Geräte für ${esc(label)}</h2><span class="chip">${devs.length}</span></div>
-        ${devs.length ? `<div class="dev-list">${devs.map((d) => `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div>${I.ui("chevron")}</button>`).join("")}</div>`
-          : `<div class="muted small">Noch kein Gerät trainiert diesen Muskel. Du kannst ihn im Geräte-Formular unter Muskelgruppe auswählen.</div>`}</section>`;
+        ${picked.length ? `<div class="mchips">${picked.map((x) => `<button type="button" class="mchip sm on" data-act="infoPart" data-p="${esc(x)}" aria-label="${esc(x)} entfernen">${esc(x)} ✕</button>`).join("")}</div>` : ""}
+        <div class="row"><div class="grow muted small">${picked.length ? `${picked.length} ${picked.length === 1 ? "Muskel" : "Muskeln"} markiert. Tippe weitere Muskeln an oder einen markierten, um ihn zu entfernen.` : "Tippe auf Muskeln in der Abbildung, um nach ihnen zu filtern. Mehrere gehen gleichzeitig."}</div>
+          ${picked.length ? `<button class="btn small" data-act="infoClearAll" aria-label="Alle markierten Muskeln entfernen">✕ Alle entfernen</button>` : ""}</div>
+        <button class="btn block" data-act="infoJump">${I.ui("list")} ${devs.length} passende Geräte</button></section>
+      <section class="card" id="infoDevs"><div class="card-h"><h2>Geräte für ${esc(label)}</h2><span class="chip">${devs.length}</span></div>
+        ${devs.length ? `<div class="dev-list">${devs.map(({ d, n }) => `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div>${picked.length > 1 ? `<span class="chip ${n === picked.length ? "good" : ""}">${n}/${picked.length}</span>` : ""}${I.ui("chevron")}</button>`).join("")}</div>`
+          : `<div class="muted small">Noch kein Gerät trainiert ${picked.length > 1 ? "diese Muskeln" : "diesen Muskel"}. Du kannst Muskeln im Geräte-Formular unter Muskelgruppe auswählen.</div>`}</section>`;
   }
 
   // ---------- STATS ----------
@@ -898,14 +910,23 @@
       pickerSheet();
     },
     // stats
-    // Tapping a muscle filters to it (again = back to the group); a muscle outside the group switches the group.
+    // Tapping a muscle adds it to the selection, tapping it again removes it.
     infoPart: (el) => {
-      const p = el.dataset.p; const g = ui.infoGroup || "Ganzkörper";
-      ui.infoPart = p && ui.infoPart === p ? "" : p;
-      if (p && g !== "Ganzkörper" && PART_GROUP[p] !== g) ui.infoGroup = PART_GROUP[p];
+      const p = el.dataset.p; const cur = ui.infoParts || [];
+      ui.infoParts = cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p];
+      const gs = [...new Set(ui.infoParts.map((x) => PART_GROUP[x]))];
+      if ((ui.infoGroup || "Ganzkörper") !== "Ganzkörper") ui.infoGroup = gs.length === 1 ? gs[0] : gs.length ? "Ganzkörper" : ui.infoGroup;
       render();
     },
-    infoPick: (el) => { ui.infoGroup = el.dataset.g; ui.infoPart = el.dataset.p; ui.infoQ = ""; render(); window.scrollTo(0, 0); },
+    infoClear: () => { const g = ui.infoGroup || "Ganzkörper"; ui.infoParts = g === "Ganzkörper" ? [] : (ui.infoParts || []).filter((x) => PART_GROUP[x] !== g); render(); },
+    infoClearAll: () => { ui.infoParts = []; render(); },
+    infoJump: () => { const el = $("#infoDevs"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); },
+    infoPick: (el) => {
+      const p = el.dataset.p; const cur = ui.infoParts || [];
+      if (p) { ui.infoParts = cur.includes(p) ? cur : [...cur, p]; if ((ui.infoGroup || "Ganzkörper") !== "Ganzkörper" && ui.infoGroup !== PART_GROUP[p]) ui.infoGroup = "Ganzkörper"; }
+      else { ui.infoGroup = el.dataset.g; ui.infoParts = []; }
+      ui.infoQ = ""; render(); window.scrollTo(0, 0);
+    },
     calNav: (el) => { ui.cal = new Date(ui.cal.getFullYear(), ui.cal.getMonth() + +el.dataset.d, 1); render(); },
     openDay: (el) => {
       const ws = S.workouts.filter((w) => dayKey(w.start) === el.dataset.k);
@@ -920,7 +941,7 @@
     setW: (el) => { S.active.entries[+el.dataset.e].sets[+el.dataset.s].w = +el.value; save(); render(); },
     setR: (el) => { S.active.entries[+el.dataset.e].sets[+el.dataset.s].r = +el.value; save(); render(); },
     cf: (el) => { ui.cardioForm[el.dataset.k] = el.dataset.k === "deviceId" ? el.value : +el.value; if (el.dataset.k === "deviceId") render(); },
-    infoGroup: (el) => { ui.infoGroup = el.value; ui.infoPart = ""; render(); },
+    infoGroup: (el) => { ui.infoGroup = el.value; ui.infoParts = []; render(); },
     pickMuscle: (el) => { ui.pick.muscle = el.value; pickerSheet(); },
     devMuscle: (el) => { ui.devMuscle = el.value; render(); },
     planSel: (el) => { ui.plan = el.value; render(); },
