@@ -33,9 +33,11 @@
     stepper: { l: "Stepper", mode: "level", pic: "stepper" },
     other: { l: "Sonstiges", mode: "level", pic: "generic" }
   };
-  const STEPS = [0.5, 1, 1.25, 2, 2.5, 5, 10];
-  const DAYS = { push: { l: "Push", sub: "Brust · Schultern · Trizeps" }, pull: { l: "Pull", sub: "Rücken · Bizeps" }, legs: { l: "Legs", sub: "Beine · Waden" } };
-  const TYPE_L = { push: "Push", pull: "Pull", legs: "Legs", frei: "Freies Training", cardio: "Cardio" };
+  const STEPS = [0.5, 1, 1.25, 2, 2.5, 4, 5, 10];
+  const TYPE_L = { frei: "Freies Training", cardio: "Cardio", push: "Push", pull: "Pull", legs: "Legs" };
+  const planById = (id) => S.plans.find((p) => p.id === id);
+  // A workout keeps its plan's name at the time it was trained, so renaming a plan never rewrites history.
+  const wName = (w) => w.name || (planById(w.type) || {}).name || TYPE_L[w.type] || "Training";
   const BODY_FIELDS = [["fat", "Körperfett", "%"], ["chest", "Brust", "cm"], ["waist", "Taille", "cm"], ["hip", "Hüfte", "cm"], ["arm", "Oberarm", "cm"], ["thigh", "Oberschenkel", "cm"]];
 
   // ---------- storage ----------
@@ -68,7 +70,7 @@
   };
 
   const fresh = () => ({
-    v: 1, devices: [], templates: { push: [], pull: [], legs: [] }, workouts: [], body: [],
+    v: 2, seed: 0, devices: [], plans: [], workouts: [], body: [],
     settings: { rest: 90, weeklyGoal: 3, sets: 3 }, active: null
   });
   let S = fresh();
@@ -82,7 +84,7 @@
 
   // ---------- ui state (not saved) ----------
   const ui = {
-    tab: "start", volFilter: "all", devSeg: "list", devCat: "kraft", devMuscle: "", tplDay: "push",
+    tab: "start", volFilter: "all", devSeg: "list", devCat: "kraft", devMuscle: "", plan: "",
     trainSeg: "kraft", cal: mondayOf(Date.now()), progDev: "", rating: 0, draft: null, pick: null,
     cardioForm: { deviceId: "", min: 20, level: 8, speed: 8, incline: 0 }
   };
@@ -189,9 +191,12 @@
   function volumeCard() {
     const data = dailyVolume(14, ui.volFilter); const total = data.reduce((a, b) => a + b.value, 0);
     const items = data.map((d) => ({ value: d.value, label: String(d.d.getDate()), title: `${fmtDate(d.d)}: ${nf(d.value, 0)} kg` }));
-    const f = [["all", "Gesamt"], ["push", "Push"], ["pull", "Pull"], ["legs", "Legs"]];
+    const f = [["all", "Gesamt"], ...S.plans.map((p) => [p.id, p.name])];
+    const filter = f.length <= 4
+      ? `<div class="seg">${f.map(([k, l]) => `<button data-act="volFilter" data-v="${k}" class="${ui.volFilter === k ? "on" : ""}">${esc(l)}</button>`).join("")}</div>`
+      : `<select id="volFilter" data-change="volFilter" aria-label="Plan">${opts(f.map(([v, l]) => ({ v, l })), ui.volFilter)}</select>`;
     return `<section class="card"><div class="card-h"><h2>Volumen · letzte 14 Tage</h2><span class="chip num">${nf(total, 0)} kg</span></div>
-      <div class="seg">${f.map(([k, l]) => `<button data-act="volFilter" data-v="${k}" class="${ui.volFilter === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      ${filter}
       ${barChart(items)}<div class="muted small">Volumen = Gewicht × Wiederholungen aller erledigten Sätze pro Tag.</div></section>`;
   }
 
@@ -222,7 +227,7 @@
 
   // ---------- START ----------
   function startButtons() {
-    const b = Object.entries(DAYS).map(([k, d]) => `<button class="start-btn ${k === "push" ? "push" : ""}" data-act="start" data-type="${k}"><b>${d.l}</b><span>${S.templates[k].length} Geräte</span></button>`).join("");
+    const b = S.plans.map((p, i) => `<button class="start-btn ${i === 0 ? "push" : ""}" data-act="start" data-type="${esc(p.id)}"><b class="ellipsis" style="max-width:100%">${esc(p.name)}</b><span>${p.devices.length} Geräte</span></button>`).join("");
     return `<div class="start-grid">${b}
       <button class="start-btn wide" data-act="start" data-type="frei"><div><b>Freies Training</b><br><span>Geräte selbst wählen</span></div>${I.ui("chevron")}</button>
       <button class="start-btn wide" data-act="start" data-type="cardio"><div><b>Cardio</b><br><span>Fahrrad, Laufband & Co.</span></div>${I.ui("chevron")}</button></div>`;
@@ -236,7 +241,7 @@
     const last = [...S.workouts].sort((x, y) => y.start - x.start)[0];
     view.innerHTML = `
       ${a ? `<section class="card" style="border-color:var(--accent)"><div class="card-h"><h2>Training läuft</h2><span class="chip num" data-live="elapsed">${fmtDur(Date.now() - a.start)}</span></div>
-        <div class="row"><b class="grow" style="font-size:18px">${TYPE_L[a.type]}</b><button class="btn primary" data-act="tab" data-tab="training">Fortsetzen</button></div></section>` : ""}
+        <div class="row"><b class="grow" style="font-size:18px">${esc(wName(a))}</b><button class="btn primary" data-act="tab" data-tab="training">Fortsetzen</button></div></section>` : ""}
       <section class="card">
         <div class="hero-streak"><div class="streak-num">${st.n}</div><div class="grow"><b>${st.n === 1 ? "Woche" : "Wochen"} Streak</b><div class="muted small">Diese Woche ${st.cur} von ${st.goal} Trainingstagen · Rekord ${st.best}</div></div><span style="color:var(--accent-hi)">${I.ui("flame")}</span></div>
         <div class="week-dots">${dots}</div>
@@ -245,7 +250,7 @@
       ${volumeCard()}
       ${last ? `<section class="card"><div class="card-h"><h2>Letztes Training</h2><span class="chip gold">${I.ui("star")} ${last.rating || "–"}/10</span></div>
         <button class="row" data-act="openWorkout" data-id="${last.id}" style="background:none;border:0;padding:0;text-align:left">
-        <div class="grow"><b>${TYPE_L[last.type]}</b><div class="muted small">${fmtDate(last.start)} · ${fmtDur(last.end - last.start)} · ${nf(volOf(last), 0)} kg</div></div>${I.ui("chevron")}</button></section>` : ""}`;
+        <div class="grow"><b>${esc(wName(last))}</b><div class="muted small">${fmtDate(last.start)} · ${fmtDur(last.end - last.start)} · ${nf(volOf(last), 0)} kg</div></div>${I.ui("chevron")}</button></section>` : ""}`;
   }
 
   // ---------- TRAINING ----------
@@ -255,8 +260,9 @@
     return { deviceId: d.id, name: d.name, note: "", sets: Array.from({ length: n }, () => ({ w, r, done: false })) };
   }
   function startWorkout(type) {
-    const entries = (S.templates[type] || []).map(devById).filter(Boolean).map(newEntry);
-    S.active = { id: uid(), type, start: Date.now(), entries, cardio: [], restEnd: null, restTotal: S.settings.rest };
+    const plan = planById(type);
+    const entries = (plan ? plan.devices : []).map(devById).filter(Boolean).map(newEntry);
+    S.active = { id: uid(), type, name: plan ? plan.name : TYPE_L[type], start: Date.now(), entries, cardio: [], restEnd: null, restTotal: S.settings.rest };
     ui.trainSeg = type === "cardio" ? "cardio" : "kraft";
     save(true); go("training");
   }
@@ -328,7 +334,7 @@
         <section class="card">${startButtons()}</section>`;
       return;
     }
-    setTop(TYPE_L[a.type], `<button class="btn primary small" data-act="finish">Beenden</button>`);
+    setTop(wName(a), `<button class="btn primary small" data-act="finish">Beenden</button>`);
     const vol = volOf(a); const nDone = a.entries.reduce((x, e) => x + doneSets(e).length, 0);
     view.innerHTML = `
       <section class="card"><div class="grid3">
@@ -365,25 +371,33 @@
     openSheet(`<h3>${esc(p.title)}</h3>
       <label class="field"><span>Muskelgruppe</span><select id="pickMuscle" data-change="pickMuscle"><option value="">Alle Muskelgruppen</option>${opts(muscleList(), p.muscle)}</select></label>
       <div class="dev-list">${rows || `<div class="empty"><b>Keine Geräte</b>Lege zuerst Geräte an.</div>`}</div>
-      ${p.saveToTpl != null ? `<button class="dev" data-act="pickTpl"><div class="grow"><b>Auch im ${TYPE_L[S.active.type]}-Standard speichern</b><small>Beim nächsten ${TYPE_L[S.active.type]} automatisch dabei</small></div><span class="check ${p.saveToTpl ? "on" : ""}">${p.saveToTpl ? I.ui("check") : ""}</span></button>` : ""}
+      ${p.saveToTpl != null ? `<button class="dev" data-act="pickTpl"><div class="grow"><b>Auch im Plan „${esc(wName(S.active))}“ speichern</b><small>Beim nächsten Mal automatisch dabei</small></div><span class="check ${p.saveToTpl ? "on" : ""}">${p.saveToTpl ? I.ui("check") : ""}</span></button>` : ""}
       <button class="btn primary block" data-act="pickDone">${esc(p.doneLabel)} (${p.sel.length})</button>`);
   }
 
   // ---------- DEVICES ----------
   function vDevices() {
     setTop("Geräte", `<button class="icon-btn" data-act="newDevice" aria-label="Gerät anlegen">${I.ui("plus")}</button>`);
-    const seg = `<div class="seg"><button data-act="devSeg" data-v="list" class="${ui.devSeg === "list" ? "on" : ""}">Alle Geräte</button><button data-act="devSeg" data-v="tpl" class="${ui.devSeg === "tpl" ? "on" : ""}">Standard-Workouts</button></div>`;
+    const seg = `<div class="seg"><button data-act="devSeg" data-v="list" class="${ui.devSeg === "list" ? "on" : ""}">Alle Geräte</button><button data-act="devSeg" data-v="tpl" class="${ui.devSeg === "tpl" ? "on" : ""}">Trainingspläne</button></div>`;
     if (ui.devSeg === "tpl") {
-      const ids = S.templates[ui.tplDay]; const day = DAYS[ui.tplDay];
+      if (!planById(ui.plan)) ui.plan = S.plans[0] ? S.plans[0].id : "";
+      const plan = planById(ui.plan);
+      if (!plan) {
+        view.innerHTML = `${seg}<div class="empty"><b>Keine Trainingspläne</b>Lege einen Plan an, z. B. Push, Pull oder Legs.<button class="btn primary" data-act="newPlan">${I.ui("plus")} Neuer Plan</button></div>`;
+        return;
+      }
+      const ids = plan.devices;
       const rows = ids.map(devById).filter(Boolean).map((d, i) => `<div class="dev">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${esc(d.muscle || "")}</small></div>
         <button class="icon-btn" data-act="tplUp" data-i="${i}" aria-label="Nach oben" ${i ? "" : "disabled"} style="transform:rotate(-90deg)">${I.ui("chevron")}</button>
         <button class="icon-btn" data-act="tplRm" data-i="${i}" aria-label="Entfernen">${I.ui("close")}</button></div>`).join("");
       view.innerHTML = `${seg}
-        <div class="seg">${Object.entries(DAYS).map(([k, d]) => `<button data-act="tplDay" data-v="${k}" class="${ui.tplDay === k ? "on" : ""}">${d.l}</button>`).join("")}</div>
-        <section class="card"><div class="card-h"><h2>${day.l} · ${day.sub}</h2><span class="chip">${ids.length} Geräte</span></div>
-          <div class="muted small">Diese Geräte werden geladen, wenn du ${day.l} startest. Die Reihenfolge ist die Trainingsreihenfolge.</div>
-          <div class="dev-list">${rows || `<div class="empty"><b>Noch leer</b>Wähle die Geräte, die du an ${day.l}-Tagen normalerweise benutzt.</div>`}</div>
-          <button class="btn primary block" data-act="tplEdit">${I.ui("list")} Geräte auswählen</button></section>`;
+        <div class="row"><select id="planSel" class="grow" data-change="planSel" aria-label="Trainingsplan">${opts(S.plans.map((p) => ({ v: p.id, l: p.name })), plan.id)}</select>
+          <button class="btn" data-act="newPlan">${I.ui("plus")} Neu</button></div>
+        <section class="card"><div class="card-h"><div class="grow" style="min-width:0"><b class="ellipsis" style="display:block;font-size:18px">${esc(plan.name)}</b><span class="muted small">${esc(plan.sub || "")}</span></div>
+          <button class="btn small" data-act="editPlan">${I.ui("edit")} Bearbeiten</button></div>
+          <div class="muted small">Diese Geräte werden geladen, wenn du „${esc(plan.name)}“ startest. Die Reihenfolge ist die Trainingsreihenfolge.</div>
+          <div class="dev-list">${rows || `<div class="empty"><b>Noch leer</b>Wähle die Geräte, die du in diesem Plan normalerweise benutzt.</div>`}</div>
+          <button class="btn primary block" data-act="tplEdit">${I.ui("list")} Geräte auswählen (${ids.length})</button></section>`;
       return;
     }
     const isCardio = ui.devCat === "cardio";
@@ -439,7 +453,7 @@
     let cells = WD.map((d) => `<div class="wd">${d}</div>`).join("") + `<div class="d out"></div>`.repeat(lead);
     for (let i = 1; i <= dim; i++) {
       const k = dayKey(new Date(m.getFullYear(), m.getMonth(), i)); const w = st.days.get(k);
-      cells += `<button class="d ${w ? "trained" : ""} ${k === todayK ? "today" : ""}" ${w ? `data-act="openDay" data-k="${k}"` : "disabled"}>${i}${w ? `<small>${w.map((x) => (TYPE_L[x.type] || "").slice(0, 4)).join("+")}</small>` : ""}</button>`;
+      cells += `<button class="d ${w ? "trained" : ""} ${k === todayK ? "today" : ""}" ${w ? `data-act="openDay" data-k="${k}"` : "disabled"}>${i}${w ? `<small>${w.map((x) => esc(wName(x).slice(0, 4))).join("+")}</small>` : ""}</button>`;
     }
     // progress per device
     const withHist = kraftDevices().filter((d) => sessionsFor(d.id).length);
@@ -469,7 +483,7 @@
       <section class="card"><div class="card-h"><h2>Cardio</h2></div>
         <div class="grid2"><div class="kpi"><b>${cWeek} min</b><span>Diese Woche</span></div><div class="kpi"><b>${c30} min</b><span>Letzte 30 Tage</span></div></div></section>
       <section class="card"><div class="card-h"><h2>Verlauf</h2></div>
-        ${ws.length ? `<div class="hist">${ws.slice(0, 30).map((w) => `<button class="row" data-act="openWorkout" data-id="${w.id}"><div class="grow"><b>${TYPE_L[w.type]}</b><div class="muted small">${fmtDate(w.start)} · ${fmtDur(w.end - w.start)} · ${nf(volOf(w), 0)} kg</div></div><span class="chip gold">${I.ui("star")} ${w.rating || "–"}</span>${I.ui("chevron")}</button>`).join("")}</div>`
+        ${ws.length ? `<div class="hist">${ws.slice(0, 30).map((w) => `<button class="row" data-act="openWorkout" data-id="${w.id}"><div class="grow"><b>${esc(wName(w))}</b><div class="muted small">${fmtDate(w.start)} · ${fmtDur(w.end - w.start)} · ${nf(volOf(w), 0)} kg</div></div><span class="chip gold">${I.ui("star")} ${w.rating || "–"}</span>${I.ui("chevron")}</button>`).join("")}</div>`
           : `<div class="muted small">Noch keine Trainings gespeichert.</div>`}</section>`;
   }
   function workoutSheet(w) {
@@ -479,7 +493,7 @@
         <div class="grow"><b>${esc(e.name)}</b><div class="muted small num">${doneSets(e).map((s) => `${nf(s.w)}×${s.r}${isPR(s, b) ? " (PR)" : ""}`).join(" · ")}</div>${e.note ? `<div class="small">${esc(e.note)}</div>` : ""}</div></div>`;
     }).join("");
     const car = (w.cardio || []).map((c) => `<div class="muted small">${esc(c.name)}: ${c.min} min · ${c.speed != null ? `${nf(c.speed, 1)} km/h` : `Stufe ${c.level}`}</div>`).join("");
-    openSheet(`<h3>${TYPE_L[w.type]} · ${fmtDate(w.start)}</h3>
+    openSheet(`<h3>${esc(wName(w))} · ${fmtDate(w.start)}</h3>
       <div class="kpis"><div class="kpi"><b>${fmtDur(w.end - w.start)}</b><span>Dauer</span></div><div class="kpi"><b>${nf(volOf(w), 0)}</b><span>kg Volumen</span></div><div class="kpi"><b>${w.rating || "–"}/10</b><span>Bewertung</span></div></div>
       ${w.note ? `<div class="hint">${esc(w.note)}</div>` : ""}
       <div>${ent || ""}${car}</div>
@@ -532,9 +546,34 @@
     const arr = Array.isArray(json) ? json : json.devices || json.geraete || [];
     let added = 0; const byName = new Map(S.devices.map((d) => [d.name.toLowerCase(), d]));
     for (const x of arr) { const d = toDevice(x); if (!d.name || byName.has(d.name.toLowerCase())) continue; S.devices.push(d); byName.set(d.name.toLowerCase(), d); added++; }
-    const tpl = json.templates || json.standardworkouts;
-    if (tpl) for (const k of Object.keys(DAYS)) for (const n of tpl[k] || []) { const d = byName.get(String(n).toLowerCase()); if (d && !S.templates[k].includes(d.id)) S.templates[k].push(d.id); }
+    const tpl = json.templates || json.standardworkouts || json.plans;
+    if (tpl) {
+      const list = Array.isArray(tpl) ? tpl : Object.entries(tpl).map(([k, v]) => ({ id: k, name: k[0].toUpperCase() + k.slice(1), devices: v }));
+      for (const p of list) mergePlan(p, byName);
+    }
     save(true); return added;
+  }
+  // Adds a plan, or fills an existing one (same id or name) that has no devices yet.
+  function mergePlan(p, byName) {
+    const ids = (p.devices || []).map((n) => byName.get(String(n).toLowerCase())).filter(Boolean).map((d) => d.id);
+    let plan = S.plans.find((x) => x.id === p.id || x.name.toLowerCase() === String(p.name || "").toLowerCase());
+    if (!plan) { plan = { id: p.id && !planById(p.id) ? p.id : uid(), name: p.name || "Plan", sub: p.sub || "", devices: [] }; S.plans.push(plan); }
+    if (!plan.devices.length) plan.devices = ids;
+  }
+  function applySeed() {
+    const seed = window.GYM_SEED; if (!seed || (S.seed || 0) >= seed.version) return;
+    const byName = new Map(S.devices.map((d) => [d.name.toLowerCase(), d]));
+    for (const x of seed.devices) { if (byName.has(x.name.toLowerCase())) continue; const d = toDevice(x); S.devices.push(d); byName.set(d.name.toLowerCase(), d); }
+    for (const p of seed.plans) mergePlan(p, byName);
+    S.seed = seed.version; save(true);
+  }
+  function planSheet() {
+    const p = ui.draft; const existing = !!planById(p.id);
+    openSheet(`<h3>${existing ? "Plan bearbeiten" : "Neuer Plan"}</h3>
+      <label class="field"><span>Name</span><input type="text" id="pName" data-input="draft" data-k="name" value="${esc(p.name)}" placeholder="z. B. Push, Oberkörper, Arme" autocomplete="off" maxlength="40"></label>
+      <label class="field"><span>Beschreibung</span><input type="text" id="pSub" data-input="draft" data-k="sub" value="${esc(p.sub || "")}" placeholder="z. B. Brust · Schultern · Trizeps" autocomplete="off" maxlength="60"></label>
+      <button class="btn primary block" data-act="savePlan">Speichern</button>
+      ${existing ? `<button class="btn block ghost danger" data-act="delPlan">${I.ui("trash")} Plan löschen</button>` : ""}`);
   }
   async function exportData() {
     const data = JSON.stringify({ app: "GymRat", exported: new Date().toISOString(), state: S, photos });
@@ -573,10 +612,10 @@
     rest: (el) => { const a = S.active; a.restEnd = Math.max(Date.now(), a.restEnd + +el.dataset.d * 1000); a.restTotal = Math.max(15, a.restTotal + +el.dataset.d); save(); tick(); },
     timerOff: () => { S.active.restEnd = null; save(); render(); },
     addEntry: () => {
-      const a = S.active; const inTpl = !!DAYS[a.type];
+      const a = S.active; const plan = planById(a.type); const inTpl = !!plan;
       ui.pick = { title: "Geräte hinzufügen", sel: [], muscle: "", doneLabel: "Hinzufügen", saveToTpl: inTpl ? false : null,
         onDone: (ids, toTpl) => { ids.map(devById).filter(Boolean).forEach((d) => a.entries.push(newEntry(d)));
-          if (toTpl) ids.forEach((id) => { if (!S.templates[a.type].includes(id)) S.templates[a.type].push(id); }); save(); render(); } };
+          if (toTpl && plan) ids.forEach((id) => { if (!plan.devices.includes(id)) plan.devices.push(id); }); save(); render(); } };
       pickerSheet();
     },
     pickToggle: (el) => { const p = ui.pick; const id = el.dataset.id; p.sel = p.sel.includes(id) ? p.sel.filter((x) => x !== id) : [...p.sel, id]; const y = $(".sheet-panel").scrollTop; pickerSheet(); $(".sheet-panel").scrollTop = y; },
@@ -595,7 +634,7 @@
       const a = S.active; const note = $("#finNote") ? $("#finNote").value.trim() : "";
       const entries = a.entries.map((e) => ({ deviceId: e.deviceId, name: e.name, note: e.note || "", sets: doneSets(e).map(({ w, r }) => ({ w, r, done: true })) })).filter((e) => e.sets.length);
       if (!entries.length && !a.cardio.length) { toast("Noch nichts erledigt – hake mindestens einen Satz ab oder trag Cardio ein."); return; }
-      S.workouts.push({ id: a.id, type: a.type, start: a.start, end: Date.now(), entries, cardio: a.cardio, rating: ui.rating, note });
+      S.workouts.push({ id: a.id, type: a.type, name: wName(a), start: a.start, end: Date.now(), entries, cardio: a.cardio, rating: ui.rating, note });
       S.active = null; save(true); closeSheet(); go("start"); toast("Training gespeichert");
     },
     discardWorkout: (el) => { if (!armed(el, "Nochmal tippen: Training wirklich verwerfen")) return; S.active = null; save(true); closeSheet(); go("start"); toast("Training verworfen"); },
@@ -619,16 +658,29 @@
     delDevice: (el) => {
       if (!armed(el, "Nochmal tippen: Gerät löschen (Trainings bleiben)")) return;
       const id = ui.draft.id; S.devices = S.devices.filter((d) => d.id !== id);
-      for (const k of Object.keys(S.templates)) S.templates[k] = S.templates[k].filter((x) => x !== id);
+      for (const p of S.plans) p.devices = p.devices.filter((x) => x !== id);
       delete photos[id]; idb.del("photos", id); save(true); closeSheet(); render(); toast("Gerät gelöscht");
     },
-    tplDay: (el) => { ui.tplDay = el.dataset.v; render(); },
-    tplRm: (el) => { S.templates[ui.tplDay].splice(+el.dataset.i, 1); save(); render(); },
-    tplUp: (el) => { const t = S.templates[ui.tplDay]; const i = +el.dataset.i; if (i > 0) [t[i - 1], t[i]] = [t[i], t[i - 1]]; save(); render(); },
+    tplRm: (el) => { planById(ui.plan).devices.splice(+el.dataset.i, 1); save(); render(); },
+    tplUp: (el) => { const t = planById(ui.plan).devices; const i = +el.dataset.i; if (i > 0) [t[i - 1], t[i]] = [t[i], t[i - 1]]; save(); render(); },
+    newPlan: () => { ui.draft = { id: uid(), name: "", sub: "", devices: [] }; planSheet(); },
+    editPlan: () => { ui.draft = { ...planById(ui.plan) }; planSheet(); },
+    savePlan: () => {
+      const p = ui.draft; p.name = ($("#pName").value || "").trim(); p.sub = ($("#pSub").value || "").trim();
+      if (!p.name) { toast("Gib dem Plan einen Namen"); $("#pName").focus(); return; }
+      if (S.plans.some((x) => x.id !== p.id && x.name.toLowerCase() === p.name.toLowerCase())) { toast("Es gibt schon einen Plan mit diesem Namen"); return; }
+      const i = S.plans.findIndex((x) => x.id === p.id); if (i >= 0) S.plans[i] = p; else S.plans.push(p);
+      ui.plan = p.id; ui.devSeg = "tpl"; save(true); closeSheet(); render(); toast(i >= 0 ? "Plan gespeichert" : "Plan angelegt");
+    },
+    delPlan: (el) => {
+      if (!armed(el, "Nochmal tippen: Plan löschen (Trainings bleiben)")) return;
+      const id = ui.draft.id; S.plans = S.plans.filter((p) => p.id !== id); if (ui.volFilter === id) ui.volFilter = "all";
+      ui.plan = ""; save(true); closeSheet(); render(); toast("Plan gelöscht");
+    },
     tplEdit: () => {
-      const day = ui.tplDay;
-      ui.pick = { title: `${DAYS[day].l}: Geräte auswählen`, sel: [...S.templates[day]], muscle: "", doneLabel: "Übernehmen", saveToTpl: null,
-        onDone: (ids) => { S.templates[day] = ids; save(); render(); toast(`${DAYS[day].l}-Standard gespeichert`); } };
+      const plan = planById(ui.plan);
+      ui.pick = { title: `${plan.name}: Geräte auswählen`, sel: [...plan.devices], muscle: "", doneLabel: "Übernehmen", saveToTpl: null,
+        onDone: (ids) => { plan.devices = ids; save(); render(); toast(`Plan „${plan.name}“ gespeichert`); } };
       pickerSheet();
     },
     // stats
@@ -636,7 +688,7 @@
     openDay: (el) => {
       const ws = S.workouts.filter((w) => dayKey(w.start) === el.dataset.k);
       if (ws.length === 1) return workoutSheet(ws[0]);
-      openSheet(`<h3>${fmtDate(keyToDate(el.dataset.k))}</h3><div class="hist">${ws.map((w) => `<button class="row" data-act="openWorkout" data-id="${w.id}"><div class="grow"><b>${TYPE_L[w.type]}</b><div class="muted small">${fmtDur(w.end - w.start)} · ${nf(volOf(w), 0)} kg</div></div>${I.ui("chevron")}</button>`).join("")}</div>`);
+      openSheet(`<h3>${fmtDate(keyToDate(el.dataset.k))}</h3><div class="hist">${ws.map((w) => `<button class="row" data-act="openWorkout" data-id="${w.id}"><div class="grow"><b>${esc(wName(w))}</b><div class="muted small">${fmtDur(w.end - w.start)} · ${nf(volOf(w), 0)} kg</div></div>${I.ui("chevron")}</button>`).join("")}</div>`);
     },
     openWorkout: (el) => { const w = S.workouts.find((x) => x.id === el.dataset.id); if (w) workoutSheet(w); },
     delWorkout: (el) => { if (!armed(el, "Nochmal tippen: Training löschen")) return; S.workouts = S.workouts.filter((w) => w.id !== el.dataset.id); save(true); closeSheet(); render(); toast("Training gelöscht"); },
@@ -656,6 +708,8 @@
     cf: (el) => { ui.cardioForm[el.dataset.k] = el.dataset.k === "deviceId" ? el.value : +el.value; if (el.dataset.k === "deviceId") render(); },
     pickMuscle: (el) => { ui.pick.muscle = el.value; pickerSheet(); },
     devMuscle: (el) => { ui.devMuscle = el.value; render(); },
+    planSel: (el) => { ui.plan = el.value; render(); },
+    volFilter: (el) => { ui.volFilter = el.value; render(); },
     progDev: (el) => { ui.progDev = el.value; render(); },
     draft: (el) => {
       ui.draft[el.dataset.k] = el.dataset.num ? +el.value : el.value;
@@ -675,7 +729,7 @@
       const f = el.files && el.files[0]; if (!f) return;
       try {
         const j = JSON.parse(await readFile(f)); if (!j.state || !Array.isArray(j.state.devices)) throw new Error();
-        S = { ...fresh(), ...j.state }; photos = j.photos || {};
+        loadState(j.state); photos = j.photos || {};
         for (const [k, v] of Object.entries(photos)) await idb.put("photos", k, v);
         save(true); closeSheet(); go("start"); toast("Backup wiederhergestellt");
       } catch { toast("Die Datei ist kein GymRat-Backup"); }
@@ -707,15 +761,27 @@
   document.addEventListener("visibilitychange", () => { if (document.hidden) save(true); else render(); });
   window.addEventListener("pagehide", () => save(true));
 
+  function loadState(st) {
+    S = { ...fresh(), ...st, settings: { ...fresh().settings, ...(st.settings || {}) } };
+    // v1 stored fixed push/pull/legs templates; turn them into editable plans.
+    if (!Array.isArray(st.plans)) {
+      const t = st.templates || {};
+      S.plans = [["push", "Push", "Brust · Schultern · Trizeps"], ["pull", "Pull", "Rücken · Bizeps"], ["legs", "Legs", "Beine · Gesäß · Bauch"]]
+        .map(([id, name, sub]) => ({ id, name, sub, devices: t[id] || [] }));
+    }
+    delete S.templates; S.v = 2;
+  }
+
   // ---------- boot ----------
   async function boot() {
     document.querySelectorAll("[data-icon]").forEach((el) => (el.outerHTML = I.ui(el.dataset.icon)));
     try {
       await idb.open();
       const st = await idb.get("kv", "state");
-      if (st) S = { ...fresh(), ...st, settings: { ...fresh().settings, ...(st.settings || {}) }, templates: { ...fresh().templates, ...(st.templates || {}) } };
+      if (st) loadState(st);
       photos = await idb.all("photos");
     } catch { toast("Speicher nicht verfügbar – Daten werden nicht gesichert"); }
+    applySeed();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     if (S.active) ui.tab = "training";
     render();

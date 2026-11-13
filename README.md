@@ -33,4 +33,6 @@ In der App: Start → Zahnrad → „Geräteliste importieren“. Die JSON-Datei
 - `muscle`: Brust, Rücken, Schultern, Bizeps, Trizeps, Unterarme, Bauch, Quadrizeps, Beinbeuger, Gesäß, Waden, Adduktoren / Abduktoren, Ganzkörper
 - `step`: Gewichtsschritte in kg (0.5, 1, 1.25, 2, 2.5, 5, 10)
 - `cardioType`: `bike`, `treadmill`, `crosstrainer`, `rower`, `stepper`, `other`
-- `templates` ist optional. Geräte mit schon vorhandenem Namen werden übersprungen.
+- `templates` ist optional und legt Trainingspläne an (oder füllt leere Pläne mit gleichem Namen). Geräte mit schon vorhandenem Namen werden übersprungen.
+
+Die Startgeräte des Studios und die Pläne Push / Pull / Legs stehen in `seed.js`. Wird dort `version` erhöht, übernimmt die App beim nächsten Start neue Geräte, ohne vorhandene zu ändern.
