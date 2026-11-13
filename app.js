@@ -33,12 +33,10 @@
     stepper: { l: "Stepper", mode: "level", pic: "stepper" },
     other: { l: "Sonstiges", mode: "level", pic: "generic" }
   };
-  const STEPS = [0.5, 1, 1.25, 2, 2.5, 4, 5, 10];
   const TYPE_L = { frei: "Freies Training", cardio: "Cardio", push: "Push", pull: "Pull", legs: "Legs" };
   const planById = (id) => S.plans.find((p) => p.id === id);
   // A workout keeps its plan's name at the time it was trained, so renaming a plan never rewrites history.
   const wName = (w) => w.name || (planById(w.type) || {}).name || TYPE_L[w.type] || "Training";
-  const BODY_FIELDS = [["fat", "Körperfett", "%"], ["chest", "Brust", "cm"], ["waist", "Taille", "cm"], ["hip", "Hüfte", "cm"], ["arm", "Oberarm", "cm"], ["thigh", "Oberschenkel", "cm"]];
 
   // ---------- storage ----------
   const idb = {
@@ -120,15 +118,19 @@
     const last = ss[0]; const top = Math.max(...last.sets.map((s) => s.w)); const atTop = last.sets.filter((s) => s.w === top);
     const lo = d.repMin || 8, hi = d.repMax || 12;
     if (atTop.every((s) => s.r >= hi)) {
-      return top > 0 ? { w: r2(top + (d.step || 2.5)), r: lo, up: true, last, top } : { w: 0, r: hi + 1, up: true, last, top };
+      return top > 0 ? { w: r2(top + PROG_STEP), r: lo, up: true, last, top } : { w: 0, r: hi + 1, up: true, last, top };
     }
     return { w: top, r: Math.min(hi, Math.min(...atTop.map((s) => s.r)) + 1), up: false, last, top };
   }
-  function weightOptions(step, cur) {
-    const max = step <= 1 ? 150 : step <= 2.5 ? 300 : 500;
-    const list = range(0, max, step || 2.5);
-    if (cur != null && !list.includes(cur)) { list.push(cur); list.sort((a, b) => a - b); }
-    return list.map((v) => ({ v, l: v === 0 ? "0 kg (Körpergew.)" : `${nf(v)} kg` }));
+  // One weight list for every device: 0–250 kg in 0.5 kg steps. Built once; only the selected value changes.
+  const PROG_STEP = 2.5;
+  const WEIGHTS = range(0, 250, 0.5);
+  const WEIGHT_OPTS = WEIGHTS.map((v) => `<option value="${v}">${v === 0 ? "0 kg (Körpergew.)" : `${nf(v)} kg`}</option>`).join("");
+  function weightSelect(cur, attrs) {
+    const v = WEIGHTS.includes(cur) ? cur : null;
+    const extra = cur != null && v === null ? `<option value="${cur}" selected>${nf(cur)} kg</option>` : "";
+    const html = v === null ? WEIGHT_OPTS : WEIGHT_OPTS.replace(`value="${v}">`, `value="${v}" selected>`);
+    return `<select ${attrs}>${extra}${html}</select>`;
   }
 
   function trainedDays() { const m = new Map(); for (const w of S.workouts) { const k = dayKey(w.start); m.set(k, [...(m.get(k) || []), w]); } return m; }
@@ -205,16 +207,41 @@
   function setTop(title, action = "") { $("#viewTitle").textContent = title; $("#topAction").innerHTML = action; }
   function render() {
     document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === ui.tab));
-    ({ start: vStart, training: vTraining, geraete: vDevices, statistik: vStats, koerper: vBody })[ui.tab]();
+    ({ start: vStart, training: vTraining, geraete: vDevices, statistik: vStats })[ui.tab]();
   }
   function go(tab) { ui.tab = tab; render(); window.scrollTo(0, 0); }
 
   function openSheet(html) {
-    const wasClosed = $("#sheet").hidden;
+    const wasClosed = $("#sheet").hidden; ui.sheetKind = null;
     $("#sheetBody").innerHTML = html; $("#sheet").hidden = false; document.body.style.overflow = "hidden";
     if (wasClosed) $(".sheet-panel").scrollTop = 0;
   }
-  function closeSheet() { $("#sheet").hidden = true; $("#sheetBody").innerHTML = ""; document.body.style.overflow = ""; ui.pick = null; ui.draft = null; }
+  function closeSheet() { $("#sheet").hidden = true; $("#sheetBody").innerHTML = ""; document.body.style.overflow = ""; ui.pick = null; ui.draft = null; ui.sheetKind = null; }
+  // Closing an edit sheet (swipe down or tap outside) saves it; other sheets just close.
+  function dismissSheet() {
+    if (ui.sheetKind === "device") return A.saveDevice(null, { dismiss: true });
+    if (ui.sheetKind === "plan") return A.savePlan(null, { dismiss: true });
+    closeSheet();
+  }
+  // Swipe the sheet down to dismiss it (only when its content is scrolled to the top).
+  (() => {
+    const panel = $(".sheet-panel"); let y0 = null, dy = 0;
+    panel.addEventListener("touchstart", (e) => {
+      if (panel.scrollTop > 0 || e.target.closest("select, input, textarea")) { y0 = null; return; }
+      y0 = e.touches[0].clientY; dy = 0;
+    }, { passive: true });
+    panel.addEventListener("touchmove", (e) => {
+      if (y0 == null) return; dy = e.touches[0].clientY - y0;
+      if (dy > 0) { e.preventDefault(); panel.style.transition = "none"; panel.style.transform = `translateY(${dy}px)`; }
+    }, { passive: false });
+    const end = () => {
+      if (y0 == null) return; y0 = null;
+      panel.style.transition = "transform .2s ease-out"; panel.style.transform = "";
+      if (dy > 100) dismissSheet();
+      dy = 0;
+    };
+    panel.addEventListener("touchend", end); panel.addEventListener("touchcancel", end);
+  })();
   let toastT = null;
   function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2200); }
   // Two-tap confirm for destructive buttons (the viewer has no confirm dialogs).
@@ -232,6 +259,21 @@
       <button class="start-btn wide" data-act="start" data-type="frei"><div><b>Freies Training</b><br><span>Geräte selbst wählen</span></div>${I.ui("chevron")}</button>
       <button class="start-btn wide" data-act="start" data-type="cardio"><div><b>Cardio</b><br><span>Fahrrad, Laufband & Co.</span></div>${I.ui("chevron")}</button></div>`;
   }
+  // Opened in a Safari tab instead of from the home screen: explain how to get the app view without browser bars.
+  const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+  function installHint() {
+    if (isStandalone() || !/iPhone|iPad|iPod/.test(navigator.userAgent)) return "";
+    try { if (localStorage.getItem("gymrat-hide-install")) return ""; } catch {}
+    return `<section class="card" style="border-color:var(--accent)"><div class="card-h"><h2>Als App ohne Browser-Leiste</h2>
+      <button class="icon-btn" data-act="hideInstall" aria-label="Hinweis ausblenden">${I.ui("close")}</button></div>
+      <div class="small">Du hast GymRat gerade in Safari offen, deshalb siehst du unten die Browser-Leiste. So wird daraus eine App im Vollbild:</div>
+      <ol class="small" style="margin:0;padding-left:20px;display:grid;gap:4px">
+        <li>Unten auf <b>Teilen</b> tippen (Quadrat mit Pfeil).</li>
+        <li><b>Zum Home-Bildschirm</b> wählen.</li>
+        <li><b>Als Web-App öffnen</b> einschalten, falls angezeigt, dann <b>Hinzufügen</b>.</li>
+        <li>GymRat ab jetzt nur noch über das Raketen-Icon starten.</li></ol>
+      <div class="muted small">Safari und die App speichern getrennt. Hast du hier schon trainiert: vorher über das Zahnrad ein Backup sichern und in der App wiederherstellen.</div></section>`;
+  }
   function vStart() {
     setTop("GymRat", `<button class="icon-btn" data-act="settings" aria-label="Einstellungen">${I.ui("gear")}</button>`);
     const st = streakInfo(); const mon = mondayOf(Date.now()); const todayK = dayKey(Date.now());
@@ -240,6 +282,7 @@
     const a = S.active;
     const last = [...S.workouts].sort((x, y) => y.start - x.start)[0];
     view.innerHTML = `
+      ${installHint()}
       ${a ? `<section class="card" style="border-color:var(--accent)"><div class="card-h"><h2>Training läuft</h2><span class="chip num" data-live="elapsed">${fmtDur(Date.now() - a.start)}</span></div>
         <div class="row"><b class="grow" style="font-size:18px">${esc(wName(a))}</b><button class="btn primary" data-act="tab" data-tab="training">Fortsetzen</button></div></section>` : ""}
       <section class="card">
@@ -255,9 +298,10 @@
 
   // ---------- TRAINING ----------
   function newEntry(d) {
-    const sug = suggest(d); const n = S.settings.sets || 3;
-    const w = sug ? sug.w : 0, r = sug ? sug.r : d.repMin || 8;
-    return { deviceId: d.id, name: d.name, note: "", sets: Array.from({ length: n }, () => ({ w, r, done: false })) };
+    const sug = suggest(d); const r = sug ? sug.r : d.repMin || 8;
+    // Standard weights per set win; otherwise every set starts at the suggested weight.
+    const weights = d.defaultSets && d.defaultSets.length ? d.defaultSets : Array(S.settings.sets || 3).fill(sug ? sug.w : 0);
+    return { deviceId: d.id, name: d.name, note: "", sets: weights.map((w) => ({ w, r, done: false })) };
   }
   function startWorkout(type) {
     const plan = planById(type);
@@ -275,7 +319,7 @@
       <button class="icon-btn" style="width:36px;height:36px" data-act="timerOff" aria-label="Timer ausblenden">${I.ui("close")}</button></div>`;
   }
   function entryHtml(e, ei) {
-    const d = devById(e.deviceId) || { id: e.deviceId, name: e.name, step: 2.5, repMin: 8, repMax: 12 };
+    const d = devById(e.deviceId) || { id: e.deviceId, name: e.name, repMin: 8, repMax: 12 };
     const best = bestOf(d.id, S.active.start); const sug = suggest(d, S.active.start);
     let hint = `<div class="hint">Erstes Mal an diesem Gerät. Wähle ein Gewicht für ${d.repMin || 8}–${d.repMax || 12} Wdh.</div>`;
     if (sug) {
@@ -284,19 +328,20 @@
         ? `Alle Sätze bei ${d.repMax || 12} Wdh. geschafft → heute <b>${sug.w > 0 ? nf(sug.w) + " kg" : sug.r + " Wdh."}</b>`
         : `Heute <b>${nf(sug.w)} kg</b>, Ziel <b>${sug.r} Wdh.</b>`}</div>`;
     }
-    const wo = weightOptions(d.step || 2.5);
+    if (d.defaultSets && d.defaultSets.length) hint = hint.replace("</div>", `<br>Standard: ${d.defaultSets.map((w) => nf(w)).join(" · ")} kg</div>`);
     const sets = e.sets.map((s, si) => {
       const pr = isPR(s, best);
-      const wl = wo.some((o) => o.v === s.w) ? wo : weightOptions(d.step || 2.5, s.w);
       return `<div class="set ${s.done ? "saved" : ""}">
         <span class="n">${pr ? `<span class="chip gold" style="padding:2px 4px">PR</span>` : si + 1}</span>
-        <select aria-label="Gewicht Satz ${si + 1}" data-change="setW" data-e="${ei}" data-s="${si}">${opts(wl, s.w)}</select>
+        ${weightSelect(s.w, `aria-label="Gewicht Satz ${si + 1}" data-change="setW" data-e="${ei}" data-s="${si}"`)}
         <select aria-label="Wiederholungen Satz ${si + 1}" data-change="setR" data-e="${ei}" data-s="${si}">${opts(range(1, 50).map((v) => ({ v, l: `${v} Wdh.` })), s.r)}</select>
         <button class="done-btn ${s.done ? "on" : ""}" data-act="toggleSet" data-e="${ei}" data-s="${si}" aria-label="Satz erledigt">${I.ui("check")}</button></div>`;
     }).join("");
     return `<section class="card ex">
-      <div class="ex-h">${thumb(d)}<div class="grow"><b class="ellipsis" style="display:block">${esc(d.name)}</b><span class="muted small">${esc(d.muscle || "")}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
+      <div class="ex-h">${thumb(d)}<div class="grow"><b style="display:block;line-height:1.25;overflow-wrap:anywhere">${esc(d.name)}</b><span class="muted small">${esc(d.muscle || "")}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
+        <button class="icon-btn" data-act="infoToggle" data-e="${ei}" aria-label="Erklärung" ${d.info ? "" : "hidden"}>?</button>
         <button class="icon-btn" data-act="rmEntry" data-e="${ei}" aria-label="Gerät entfernen">${I.ui("trash")}</button></div>
+      ${e.showInfo && d.info ? `<div class="hint">${esc(d.info)}</div>` : ""}
       ${hint}
       <div class="set-labels"><span></span><span>Gewicht</span><span>Wdh.</span><span></span></div>
       <div class="sets">${sets}</div>
@@ -387,7 +432,7 @@
         return;
       }
       const ids = plan.devices;
-      const rows = ids.map(devById).filter(Boolean).map((d, i) => `<div class="dev">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${esc(d.muscle || "")}</small></div>
+      const rows = ids.map(devById).filter(Boolean).map((d, i) => `<div class="dev"><button class="dev-open" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${esc(d.muscle || "")}${d.defaultSets && d.defaultSets.length ? ` · ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}</small></div></button>
         <button class="icon-btn" data-act="tplUp" data-i="${i}" aria-label="Nach oben" ${i ? "" : "disabled"} style="transform:rotate(-90deg)">${I.ui("chevron")}</button>
         <button class="icon-btn" data-act="tplRm" data-i="${i}" aria-label="Entfernen">${I.ui("close")}</button></div>`).join("");
       view.innerHTML = `${seg}
@@ -404,7 +449,7 @@
     const list = (isCardio ? cardioDevices() : kraftDevices()).filter((d) => isCardio || !ui.devMuscle || d.muscle === ui.devMuscle);
     const rows = list.map((d) => {
       const b = !isCardio && bestOf(d.id);
-      const sub = isCardio ? (CARDIO[d.cardioType] || CARDIO.other).l : `${esc(d.muscle || "")} · ${nf(d.step || 2.5)} kg Schritte`;
+      const sub = isCardio ? (CARDIO[d.cardioType] || CARDIO.other).l : `${esc(d.muscle || "")}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
       return `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${sub}</small></div>${b ? `<span class="chip gold num">${nf(b.w)} kg</span>` : ""}${I.ui("chevron")}</button>`;
     }).join("");
     view.innerHTML = `${seg}
@@ -420,7 +465,13 @@
     const photo = d.photo === undefined ? photos[d.id] : d.photo;
     const b = existing && !isCardio && bestOf(d.id); const ss = existing && !isCardio ? sessionsFor(d.id) : [];
     const chart = ss.length > 1 ? lineChart(ss.slice(0, 12).reverse().map((s) => ({ y: Math.max(...s.sets.map((x) => x.w)), label: new Date(s.w.start).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) })), "kg") : "";
+    const ds = d.defaultSets || [];
+    const dsRows = ds.map((w, i) => `<div class="row"><span class="muted small" style="width:52px;flex:none">Satz ${i + 1}</span>
+      ${weightSelect(w, `class="grow" aria-label="Standardgewicht Satz ${i + 1}" data-change="dsW" data-i="${i}"`)}
+      <button class="icon-btn" data-act="dsRm" data-i="${i}" aria-label="Satz ${i + 1} entfernen">${I.ui("close")}</button></div>`).join("");
+    ui.sheetKind = "device";
     openSheet(`<h3>${existing ? "Gerät bearbeiten" : "Neues Gerät"}</h3>
+      <div class="muted small">Zum Speichern und Schließen nach unten ziehen.</div>
       <div class="thumb big">${photo ? `<img src="${photo}" alt="">` : I.pic(devPic(d))}</div>
       <div class="row"><label class="btn small grow" for="dPhoto">${I.ui("camera")} ${photo ? "Foto ersetzen" : "Eigenes Foto"}</label>
         ${photo ? `<button class="btn small ghost" data-act="dropPhoto">Zeichnung nutzen</button>` : ""}
@@ -430,16 +481,25 @@
       ${isCardio
         ? `<label class="field"><span>Art</span><select id="dType" data-change="draft" data-k="cardioType" data-redraw="1">${opts(Object.entries(CARDIO).map(([v, c]) => ({ v, l: `${c.l} (${c.mode === "speed" ? "Geschwindigkeit" : "Stufe 1–20"})` })), d.cardioType)}</select></label>`
         : `<label class="field"><span>Muskelgruppe</span><select id="dMuscle" data-change="draft" data-k="muscle" data-redraw="1">${opts(muscleList(), d.muscle)}</select></label>
-           <label class="field"><span>Gewichtsschritte</span><select id="dStep" data-change="draft" data-k="step" data-num="1">${opts(STEPS.map((v) => ({ v, l: `${nf(v)} kg` })), d.step)}</select></label>
+           <div class="field"><span>Standardgewicht pro Satz</span>
+             <div class="stack">${dsRows || `<div class="muted small">Kein Standard: Jeder Satz startet mit dem Gewicht vom letzten Mal.</div>`}</div>
+             <button class="btn small" data-act="dsAdd">${I.ui("plus")} Satz</button></div>
            <div class="grid2"><label class="field"><span>Wdh. von</span><select id="dRepMin" data-change="draft" data-k="repMin" data-num="1">${opts(range(1, 30), d.repMin)}</select></label>
            <label class="field"><span>Wdh. bis</span><select id="dRepMax" data-change="draft" data-k="repMax" data-num="1">${opts(range(1, 30), d.repMax)}</select></label></div>
-           <div class="muted small">Schaffst du in allen Sätzen „Wdh. bis“, schlägt GymRat beim nächsten Mal einen Gewichtsschritt mehr vor.</div>`}
+           <div class="muted small">Schaffst du in allen Sätzen „Wdh. bis“, schlägt GymRat beim nächsten Mal 2,5 kg mehr vor.</div>`}
+      <label class="field"><span>Erklärung</span><textarea id="dInfo" data-input="draft" data-k="info" placeholder="Kurz: Wie wird das Gerät benutzt?">${esc(d.info || "")}</textarea></label>
       <label class="field"><span>Zeichnung</span><select id="dPic" data-change="draft" data-k="pic" data-redraw="1"><option value="">Automatisch</option>${opts(I.picList.map((p) => ({ v: p.key, l: p.label })), d.pic || "")}</select></label>
       ${b ? `<div class="card"><div class="card-h"><h2>Fortschritt</h2><span class="chip gold">${I.ui("trophy")} ${nf(b.w)} kg × ${b.r}</span></div>${chart || `<div class="muted small">${ss.length} Training bisher.</div>`}</div>` : ""}
       <button class="btn primary block" data-act="saveDevice">Speichern</button>
       ${existing ? `<button class="btn block ghost danger" data-act="delDevice">${I.ui("trash")} Gerät löschen</button>` : ""}`);
+    ui.sheetKind = "device";
   }
-  function openDeviceDraft(d) { ui.draft = { ...d }; deviceSheet(); }
+  function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])] }; deviceSheet(); }
+  // Re-render the open device sheet, keeping typed text and scroll position.
+  function redrawDevice() {
+    ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value;
+    const y = $(".sheet-panel").scrollTop; deviceSheet(); $(".sheet-panel").scrollTop = y;
+  }
 
   // ---------- STATS ----------
   function vStats() {
@@ -500,29 +560,6 @@
       <button class="btn block ghost danger" data-act="delWorkout" data-id="${w.id}">${I.ui("trash")} Training löschen</button>`);
   }
 
-  // ---------- BODY ----------
-  function vBody() {
-    setTop("Körper");
-    const list = [...S.body].sort((a, b) => b.date.localeCompare(a.date)); const last = list[0];
-    const bw = ui.bodyW ?? (last ? last.weight : 80);
-    const kg = Math.floor(bw), dec = Math.round((bw - kg) * 10);
-    const pts = [...list].reverse().slice(-20).filter((e) => e.weight).map((e) => ({ y: e.weight, label: keyToDate(e.date).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) }));
-    const diff = list.length > 1 ? list[0].weight - list[list.length - 1].weight : 0;
-    view.innerHTML = `
-      <section class="card"><div class="card-h"><h2>Neuer Eintrag</h2></div>
-        <label class="field"><span>Datum</span><input type="date" id="bDate" value="${dayKey(Date.now())}"></label>
-        <div class="field"><span>Körpergewicht</span><div class="grid2">
-          <select id="bKg" aria-label="Kilogramm">${opts(range(30, 200).map((v) => ({ v, l: `${v} kg` })), kg)}</select>
-          <select id="bDec" aria-label="Nachkommastelle">${opts(range(0, 9).map((v) => ({ v, l: `,${v}` })), dec)}</select></div></div>
-        <div class="grid2">${BODY_FIELDS.map(([k, l, u]) => `<label class="field"><span>${l} (${u})</span><input type="number" inputmode="decimal" step="0.1" id="b_${k}" placeholder="optional" value="${last && last[k] != null ? last[k] : ""}"></label>`).join("")}</div>
-        <button class="btn primary block" data-act="saveBody">Eintrag speichern</button></section>
-      <section class="card"><div class="card-h"><h2>Körpergewicht</h2>${list.length > 1 ? `<span class="chip ${diff <= 0 ? "good" : ""}">${diff > 0 ? "+" : ""}${nf(diff, 1)} kg seit Beginn</span>` : ""}</div>
-        ${pts.length ? lineChart(pts, "kg") : `<div class="empty"><b>Noch keine Einträge</b>Trag oben dein Gewicht ein, dann entsteht hier dein Verlauf.</div>`}</section>
-      ${list.length ? `<section class="card"><div class="card-h"><h2>Einträge</h2></div><div class="hist">${list.map((e) => `<div class="row"><div class="grow"><b class="num">${nf(e.weight, 1)} kg</b>
-        <div class="muted small">${keyToDate(e.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" })}${BODY_FIELDS.filter(([k]) => e[k] != null).map(([k, l, u]) => ` · ${l} ${nf(e[k], 1)} ${u}`).join("")}</div></div>
-        <button class="icon-btn" data-act="delBody" data-id="${e.id}" aria-label="Eintrag löschen">${I.ui("trash")}</button></div>`).join("")}</div></section>` : ""}`;
-  }
-
   // ---------- settings / backup ----------
   function settingsSheet() {
     openSheet(`<h3>Einstellungen</h3>
@@ -534,13 +571,14 @@
         <button class="btn block" data-act="exportData">${I.ui("download")} Backup sichern</button>
         <label class="btn block" for="impBackup">${I.ui("upload")} Backup wiederherstellen</label><input type="file" id="impBackup" accept=".json,application/json" data-change="importBackup" hidden>
         <label class="btn block" for="impDevices">${I.ui("upload")} Geräteliste importieren</label><input type="file" id="impDevices" accept=".json,application/json" data-change="importDevices" hidden>
-        <div class="muted small">${S.devices.length} Geräte · ${S.workouts.length} Trainings · ${S.body.length} Körpereinträge</div></div>`);
+        <div class="muted small">${S.devices.length} Geräte · ${S.workouts.length} Trainings</div></div>`);
   }
   function toDevice(x) {
     const cat = /cardio/i.test(x.category || x.bereich || "") ? "cardio" : "kraft";
     const ct = x.cardioType || x.art || ""; const ctKey = CARDIO[ct] ? ct : (Object.entries(CARDIO).find(([, c]) => c.l.toLowerCase() === String(ct).toLowerCase()) || ["other"])[0];
     return { id: uid(), name: String(x.name || "").trim(), category: cat, muscle: x.muscle || x.muskelgruppe || (cat === "kraft" ? "Ganzkörper" : ""),
-      step: Number(x.step || x.schritte) || 2.5, repMin: Number(x.repMin) || 8, repMax: Number(x.repMax) || 12, cardioType: cat === "cardio" ? ctKey : undefined, pic: x.pic || "" };
+      repMin: Number(x.repMin) || 8, repMax: Number(x.repMax) || 12, cardioType: cat === "cardio" ? ctKey : undefined, pic: x.pic || "",
+      info: String(x.info || x.erklaerung || "").trim(), defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
   }
   function importDevices(json) {
     const arr = Array.isArray(json) ? json : json.devices || json.geraete || [];
@@ -563,7 +601,11 @@
   function applySeed() {
     const seed = window.GYM_SEED; if (!seed || (S.seed || 0) >= seed.version) return;
     const byName = new Map(S.devices.map((d) => [d.name.toLowerCase(), d]));
-    for (const x of seed.devices) { if (byName.has(x.name.toLowerCase())) continue; const d = toDevice(x); S.devices.push(d); byName.set(d.name.toLowerCase(), d); }
+    for (const x of seed.devices) {
+      const have = byName.get(x.name.toLowerCase());
+      if (have) { if (!have.info && x.info) have.info = x.info; continue; }
+      const d = toDevice(x); S.devices.push(d); byName.set(d.name.toLowerCase(), d);
+    }
     for (const p of seed.plans) mergePlan(p, byName);
     S.seed = seed.version; save(true);
   }
@@ -574,6 +616,7 @@
       <label class="field"><span>Beschreibung</span><input type="text" id="pSub" data-input="draft" data-k="sub" value="${esc(p.sub || "")}" placeholder="z. B. Brust · Schultern · Trizeps" autocomplete="off" maxlength="60"></label>
       <button class="btn primary block" data-act="savePlan">Speichern</button>
       ${existing ? `<button class="btn block ghost danger" data-act="delPlan">${I.ui("trash")} Plan löschen</button>` : ""}`);
+    ui.sheetKind = "plan";
   }
   async function exportData() {
     const data = JSON.stringify({ app: "GymRat", exported: new Date().toISOString(), state: S, photos });
@@ -642,15 +685,20 @@
     devSeg: (el) => { ui.devSeg = el.dataset.v; render(); },
     devCat: (el) => { ui.devCat = el.dataset.v; render(); },
     newDevice: (el) => { const cat = (el && el.dataset.cat) || ui.devCat || "kraft";
-      openDeviceDraft({ id: uid(), name: "", category: cat, muscle: ui.devMuscle || "Brust", step: 2.5, repMin: 8, repMax: 12, cardioType: "bike", pic: "" }); },
+      openDeviceDraft({ id: uid(), name: "", category: cat, muscle: ui.devMuscle || "Brust", repMin: 8, repMax: 12, cardioType: "bike", pic: "", info: "", defaultSets: [] }); },
     openDevice: (el) => openDeviceDraft(devById(el.dataset.id)),
     dropPhoto: () => { ui.draft.photo = null; deviceSheet(); },
-    saveDevice: async () => {
-      const d = ui.draft; d.name = ($("#dName").value || "").trim();
+    dsAdd: () => { const ds = ui.draft.defaultSets = [...(ui.draft.defaultSets || [])]; ds.push(ds.length ? ds[ds.length - 1] : 20); redrawDevice(); },
+    dsRm: (el) => { ui.draft.defaultSets = (ui.draft.defaultSets || []).filter((_, i) => i !== +el.dataset.i); redrawDevice(); },
+    hideInstall: () => { try { localStorage.setItem("gymrat-hide-install", "1"); } catch {} render(); },
+    infoToggle: (el) => { const e = S.active.entries[+el.dataset.e]; e.showInfo = !e.showInfo; render(); },
+    saveDevice: async (_, opt = {}) => {
+      const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim();
+      if (!d.name && opt.dismiss && !devById(d.id)) { closeSheet(); return; }
       if (!d.name) { toast("Gib dem Gerät einen Namen"); $("#dName").focus(); return; }
       if (d.category === "kraft" && d.repMin > d.repMax) { toast("„Wdh. von“ muss kleiner sein als „Wdh. bis“"); return; }
       if (S.devices.some((x) => x.id !== d.id && x.name.toLowerCase() === d.name.toLowerCase())) { toast("Es gibt schon ein Gerät mit diesem Namen"); return; }
-      const { photo, ...rec } = d; if (rec.category === "cardio") { delete rec.muscle; } else delete rec.cardioType;
+      const { photo, ...rec } = d; delete rec.step; if (rec.category === "cardio") { delete rec.muscle; delete rec.defaultSets; } else delete rec.cardioType;
       const i = S.devices.findIndex((x) => x.id === d.id); if (i >= 0) S.devices[i] = rec; else S.devices.push(rec);
       if (photo) { photos[d.id] = photo; idb.put("photos", d.id, photo); } else if (photo === null) { delete photos[d.id]; idb.del("photos", d.id); }
       save(true); closeSheet(); render(); toast(i >= 0 ? "Gerät gespeichert" : "Gerät angelegt");
@@ -665,8 +713,9 @@
     tplUp: (el) => { const t = planById(ui.plan).devices; const i = +el.dataset.i; if (i > 0) [t[i - 1], t[i]] = [t[i], t[i - 1]]; save(); render(); },
     newPlan: () => { ui.draft = { id: uid(), name: "", sub: "", devices: [] }; planSheet(); },
     editPlan: () => { ui.draft = { ...planById(ui.plan) }; planSheet(); },
-    savePlan: () => {
+    savePlan: (_, opt = {}) => {
       const p = ui.draft; p.name = ($("#pName").value || "").trim(); p.sub = ($("#pSub").value || "").trim();
+      if (!p.name && opt.dismiss && !planById(p.id)) { closeSheet(); return; }
       if (!p.name) { toast("Gib dem Plan einen Namen"); $("#pName").focus(); return; }
       if (S.plans.some((x) => x.id !== p.id && x.name.toLowerCase() === p.name.toLowerCase())) { toast("Es gibt schon einen Plan mit diesem Namen"); return; }
       const i = S.plans.findIndex((x) => x.id === p.id); if (i >= 0) S.plans[i] = p; else S.plans.push(p);
@@ -692,14 +741,6 @@
     },
     openWorkout: (el) => { const w = S.workouts.find((x) => x.id === el.dataset.id); if (w) workoutSheet(w); },
     delWorkout: (el) => { if (!armed(el, "Nochmal tippen: Training löschen")) return; S.workouts = S.workouts.filter((w) => w.id !== el.dataset.id); save(true); closeSheet(); render(); toast("Training gelöscht"); },
-    // body
-    saveBody: () => {
-      const date = $("#bDate").value || dayKey(Date.now()); const weight = r2(+$("#bKg").value + +$("#bDec").value / 10);
-      const e = { id: uid(), date, weight };
-      for (const [k] of BODY_FIELDS) { const v = parseFloat(String($("#b_" + k).value).replace(",", ".")); if (!isNaN(v)) e[k] = v; }
-      S.body = S.body.filter((x) => x.date !== date); S.body.push(e); ui.bodyW = null; save(true); render(); toast("Eintrag gespeichert");
-    },
-    delBody: (el) => { if (!armed(el, "?")) return; S.body = S.body.filter((x) => x.id !== el.dataset.id); save(true); render(); },
     exportData: () => exportData()
   };
   const C = {
@@ -713,8 +754,9 @@
     progDev: (el) => { ui.progDev = el.value; render(); },
     draft: (el) => {
       ui.draft[el.dataset.k] = el.dataset.num ? +el.value : el.value;
-      if (el.dataset.redraw) { ui.draft.name = $("#dName").value; const y = $(".sheet-panel").scrollTop; deviceSheet(); $(".sheet-panel").scrollTop = y; }
+      if (el.dataset.redraw) redrawDevice();
     },
+    dsW: (el) => { ui.draft.defaultSets[+el.dataset.i] = +el.value; },
     photo: async (el) => {
       const f = el.files && el.files[0]; if (!f) return;
       try { ui.draft.name = $("#dName").value; ui.draft.photo = await shrinkImage(f); deviceSheet(); } catch { toast("Das Bild konnte nicht gelesen werden"); }
@@ -742,6 +784,7 @@
 
   document.addEventListener("click", (e) => {
     const tab = e.target.closest(".tab"); if (tab) { go(tab.dataset.tab); return; }
+    if (e.target.closest(".sheet-backdrop")) { dismissSheet(); return; }
     if (e.target.closest("[data-close]")) { closeSheet(); return; }
     const t = e.target.closest("[data-act]"); if (!t || t.disabled) return;
     const fn = A[t.dataset.act]; if (fn) { e.preventDefault(); fn(t, e); }

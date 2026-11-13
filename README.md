@@ -16,8 +16,8 @@ In der App: Start → Zahnrad → „Geräteliste importieren“. Die JSON-Datei
 ```json
 {
   "devices": [
-    { "name": "Brustpresse", "category": "kraft", "muscle": "Brust", "step": 2.5 },
-    { "name": "Kurzhantel: Seitheben", "category": "kraft", "muscle": "Schultern", "step": 2 },
+    { "name": "Brustpresse", "category": "kraft", "muscle": "Brust", "info": "Griffe auf Brusthöhe, nach vorn drücken.", "defaultSets": [50, 60, 70] },
+    { "name": "Kurzhantel: Seitheben", "category": "kraft", "muscle": "Schultern" },
     { "name": "Fahrrad 1", "category": "cardio", "cardioType": "bike" },
     { "name": "Laufband 1", "category": "cardio", "cardioType": "treadmill" }
   ],
@@ -31,7 +31,8 @@ In der App: Start → Zahnrad → „Geräteliste importieren“. Die JSON-Datei
 
 - `category`: `kraft` oder `cardio`
 - `muscle`: Brust, Rücken, Schultern, Bizeps, Trizeps, Unterarme, Bauch, Quadrizeps, Beinbeuger, Gesäß, Waden, Adduktoren / Abduktoren, Ganzkörper
-- `step`: Gewichtsschritte in kg (0.5, 1, 1.25, 2, 2.5, 5, 10)
+- `info`: kurze Erklärung (optional)
+- `defaultSets`: Standardgewicht pro Satz in kg (optional)
 - `cardioType`: `bike`, `treadmill`, `crosstrainer`, `rower`, `stepper`, `other`
 - `templates` ist optional und legt Trainingspläne an (oder füllt leere Pläne mit gleichem Namen). Geräte mit schon vorhandenem Namen werden übersprungen.
 
