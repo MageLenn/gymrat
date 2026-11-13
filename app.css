@@ -187,6 +187,12 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
   background: none; border: 0; padding: 0; text-align: left; color: inherit;
 }
 .sheet-panel { touch-action: pan-y; }
+.mchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mchip {
+  min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--muted); font-size: 14px; font-weight: 600;
+}
+.mchip.on { background: var(--accent-lo); border-color: var(--accent); color: var(--accent-hi); }
 .dev small { color: var(--muted); font-size: 12px; }
 .check { width: 26px; height: 26px; border-radius: 8px; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; flex: none; }
 .check.on { background: var(--accent); border-color: var(--accent); color: #fff; }

@@ -90,10 +90,12 @@
 
   // ---------- domain ----------
   const devById = (id) => S.devices.find((d) => d.id === id);
-  const devPic = (d) => d.pic || (d.category === "cardio" ? (CARDIO[d.cardioType] || CARDIO.other).pic : MUSCLE_PIC[d.muscle] || "generic");
+  const devMuscles = (d) => (d && Array.isArray(d.muscles) && d.muscles.length ? d.muscles : d && d.muscle ? [d.muscle] : []);
+  const hasMuscle = (d, m) => !m || devMuscles(d).includes(m);
+  const devPic = (d) => d.pic || (d.category === "cardio" ? (CARDIO[d.cardioType] || CARDIO.other).pic : MUSCLE_PIC[devMuscles(d)[0]] || "generic");
   const thumb = (d, cls = "") => `<div class="thumb ${cls}">${d && photos[d.id] ? `<img src="${photos[d.id]}" alt="">` : I.pic(d ? devPic(d) : "generic")}</div>`;
-  const trains = (d) => esc((d && (d.targets || d.muscle)) || "");
-  const muscleList = () => [...new Set([...MUSCLES, ...S.devices.map((d) => d.muscle).filter(Boolean)])];
+  const trains = (d) => esc((d && (d.targets || devMuscles(d).join(", "))) || "");
+  const muscleList = () => [...new Set([...MUSCLES, ...S.devices.flatMap(devMuscles)])];
   const kraftDevices = () => S.devices.filter((d) => d.category !== "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
   const cardioDevices = () => S.devices.filter((d) => d.category === "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
   const doneSets = (e) => (e.sets || []).filter((s) => s.done);
@@ -412,7 +414,7 @@
 
   // ---------- picker sheet (choose devices) ----------
   function pickerSheet() {
-    const p = ui.pick; const list = kraftDevices().filter((d) => !p.muscle || d.muscle === p.muscle);
+    const p = ui.pick; const list = kraftDevices().filter((d) => hasMuscle(d, p.muscle));
     const rows = list.map((d) => `<button class="dev" data-act="pickToggle" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div><span class="check ${p.sel.includes(d.id) ? "on" : ""}">${p.sel.includes(d.id) ? I.ui("check") : ""}</span></button>`).join("");
     openSheet(`<h3>${esc(p.title)}</h3>
       <label class="field"><span>Muskelgruppe</span><select id="pickMuscle" data-change="pickMuscle"><option value="">Alle Muskelgruppen</option>${opts(muscleList(), p.muscle)}</select></label>
@@ -447,7 +449,7 @@
       return;
     }
     const isCardio = ui.devCat === "cardio";
-    const list = (isCardio ? cardioDevices() : kraftDevices()).filter((d) => isCardio || !ui.devMuscle || d.muscle === ui.devMuscle);
+    const list = (isCardio ? cardioDevices() : kraftDevices()).filter((d) => isCardio || hasMuscle(d, ui.devMuscle));
     const rows = list.map((d) => {
       const b = !isCardio && bestOf(d.id);
       const sub = isCardio ? `${(CARDIO[d.cardioType] || CARDIO.other).l}${d.targets ? ` · ${trains(d)}` : ""}` : `${trains(d)}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
@@ -481,7 +483,9 @@
       <label class="field"><span>Bereich</span><select id="dCat" data-change="draft" data-k="category" data-redraw="1">${opts([{ v: "kraft", l: "Krafttraining" }, { v: "cardio", l: "Cardio" }], d.category)}</select></label>
       ${isCardio
         ? `<label class="field"><span>Art</span><select id="dType" data-change="draft" data-k="cardioType" data-redraw="1">${opts(Object.entries(CARDIO).map(([v, c]) => ({ v, l: `${c.l} (${c.mode === "speed" ? "Geschwindigkeit" : "Stufe 1–20"})` })), d.cardioType)}</select></label>`
-        : `<label class="field"><span>Muskelgruppe</span><select id="dMuscle" data-change="draft" data-k="muscle" data-redraw="1">${opts(muscleList(), d.muscle)}</select></label>
+        : `<div class="field"><span>Muskelgruppen (mehrere möglich, erste = Hauptgruppe)</span>
+             <div class="mchips">${muscleList().map((m) => { const i = devMuscles(d).indexOf(m);
+               return `<button type="button" class="mchip ${i >= 0 ? "on" : ""}" data-act="toggleMuscle" data-m="${esc(m)}" aria-pressed="${i >= 0}">${i === 0 ? "★ " : ""}${esc(m)}</button>`; }).join("")}</div></div>
            <div class="field"><span>Standardgewicht pro Satz</span>
              <div class="stack">${dsRows || `<div class="muted small">Kein Standard: Jeder Satz startet mit dem Gewicht vom letzten Mal.</div>`}</div>
              <button class="btn small" data-act="dsAdd">${I.ui("plus")} Satz</button></div>
@@ -496,7 +500,7 @@
       ${existing ? `<button class="btn block ghost danger" data-act="delDevice">${I.ui("trash")} Gerät löschen</button>` : ""}`);
     ui.sheetKind = "device";
   }
-  function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])] }; deviceSheet(); }
+  function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])], muscles: [...devMuscles(d)] }; deviceSheet(); }
   // Re-render the open device sheet, keeping typed text and scroll position.
   function redrawDevice() {
     ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value; if ($("#dTargets")) ui.draft.targets = $("#dTargets").value;
@@ -579,6 +583,7 @@
     const cat = /cardio/i.test(x.category || x.bereich || "") ? "cardio" : "kraft";
     const ct = x.cardioType || x.art || ""; const ctKey = CARDIO[ct] ? ct : (Object.entries(CARDIO).find(([, c]) => c.l.toLowerCase() === String(ct).toLowerCase()) || ["other"])[0];
     return { id: uid(), name: String(x.name || "").trim(), category: cat, muscle: x.muscle || x.muskelgruppe || (cat === "kraft" ? "Ganzkörper" : ""),
+      muscles: Array.isArray(x.muscles) && x.muscles.length ? x.muscles.map(String) : [x.muscle || x.muskelgruppe || "Ganzkörper"],
       repMin: Number(x.repMin) || 8, repMax: Number(x.repMax) || 12, cardioType: cat === "cardio" ? ctKey : undefined, pic: x.pic || "",
       info: String(x.info || x.erklaerung || "").trim(), targets: String(x.targets || x.trainiert || "").trim(), defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
   }
@@ -605,7 +610,9 @@
     const byName = new Map(S.devices.map((d) => [d.name.toLowerCase(), d]));
     for (const x of seed.devices) {
       const have = byName.get(x.name.toLowerCase());
-      if (have) { if (!have.info && x.info) have.info = x.info; if (!have.targets && x.targets) have.targets = x.targets; continue; }
+      if (have) { if (!have.info && x.info) have.info = x.info; if (!have.targets && x.targets) have.targets = x.targets;
+        if (x.muscles && devMuscles(have).length <= 1 && devMuscles(have)[0] === x.muscle) have.muscles = [...x.muscles];
+        continue; }
       const d = toDevice(x); S.devices.push(d); byName.set(d.name.toLowerCase(), d);
     }
     for (const p of seed.plans) mergePlan(p, byName);
@@ -687,20 +694,27 @@
     devSeg: (el) => { ui.devSeg = el.dataset.v; render(); },
     devCat: (el) => { ui.devCat = el.dataset.v; render(); },
     newDevice: (el) => { const cat = (el && el.dataset.cat) || ui.devCat || "kraft";
-      openDeviceDraft({ id: uid(), name: "", category: cat, muscle: ui.devMuscle || "Brust", repMin: 8, repMax: 12, cardioType: "bike", pic: "", info: "", defaultSets: [] }); },
+      openDeviceDraft({ id: uid(), name: "", category: cat, muscle: ui.devMuscle || "Brust", muscles: [ui.devMuscle || "Brust"], repMin: 8, repMax: 12, cardioType: "bike", pic: "", info: "", defaultSets: [] }); },
     openDevice: (el) => openDeviceDraft(devById(el.dataset.id)),
     dropPhoto: () => { ui.draft.photo = null; deviceSheet(); },
     dsAdd: () => { const ds = ui.draft.defaultSets = [...(ui.draft.defaultSets || [])]; ds.push(ds.length ? ds[ds.length - 1] : 20); redrawDevice(); },
     dsRm: (el) => { ui.draft.defaultSets = (ui.draft.defaultSets || []).filter((_, i) => i !== +el.dataset.i); redrawDevice(); },
+    toggleMuscle: (el) => {
+      const m = el.dataset.m; const cur = devMuscles(ui.draft);
+      ui.draft.muscles = cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m];
+      ui.draft.muscle = ui.draft.muscles[0] || ""; redrawDevice();
+    },
     hideInstall: () => { try { localStorage.setItem("gymrat-hide-install", "1"); } catch {} render(); },
     infoToggle: (el) => { const e = S.active.entries[+el.dataset.e]; e.showInfo = !e.showInfo; render(); },
     saveDevice: async (_, opt = {}) => {
       const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim(); d.targets = ($("#dTargets") ? $("#dTargets").value : d.targets || "").trim();
       if (!d.name && opt.dismiss && !devById(d.id)) { closeSheet(); return; }
       if (!d.name) { toast("Gib dem Gerät einen Namen"); $("#dName").focus(); return; }
-      if (d.category === "kraft" && d.repMin > d.repMax) { toast("„Wdh. von“ muss kleiner sein als „Wdh. bis“"); return; }
+      if (d.category === "kraft") d.muscles = devMuscles(d);
+      if (d.category === "kraft" && !d.muscles.length) { toast("Wähle mindestens eine Muskelgruppe"); return; }
+      if (d.category === "kraft" && d.repMax < d.repMin) { toast("„Wdh. von“ muss kleiner sein als „Wdh. bis“"); return; }
       if (S.devices.some((x) => x.id !== d.id && x.name.toLowerCase() === d.name.toLowerCase())) { toast("Es gibt schon ein Gerät mit diesem Namen"); return; }
-      const { photo, ...rec } = d; delete rec.step; if (rec.category === "cardio") { delete rec.muscle; delete rec.defaultSets; } else delete rec.cardioType;
+      const { photo, ...rec } = d; delete rec.step; if (rec.category === "cardio") { delete rec.muscle; delete rec.muscles; delete rec.defaultSets; } else { delete rec.cardioType; rec.muscle = rec.muscles[0]; }
       const i = S.devices.findIndex((x) => x.id === d.id); if (i >= 0) S.devices[i] = rec; else S.devices.push(rec);
       if (photo) { photos[d.id] = photo; idb.put("photos", d.id, photo); } else if (photo === null) { delete photos[d.id]; idb.del("photos", d.id); }
       save(true); closeSheet(); render(); toast(i >= 0 ? "Gerät gespeichert" : "Gerät angelegt");
