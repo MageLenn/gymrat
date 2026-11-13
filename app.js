@@ -261,7 +261,7 @@
     document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === ui.tab));
     ({ start: vStart, training: vTraining, geraete: vDevices, info: vInfo, statistik: vStats })[ui.tab]();
   }
-  function go(tab) { if (tab === "info" && ui.tab === "info") ui.infoGroup = ""; ui.tab = tab; render(); window.scrollTo(0, 0); }
+  function go(tab) { if (tab === "info" && ui.tab === "info") { ui.infoGroup = ""; ui.infoPart = ""; ui.infoQ = ""; } ui.tab = tab; render(); window.scrollTo(0, 0); }
 
   function openSheet(html) {
     const wasClosed = $("#sheet").hidden; ui.sheetKind = null;
@@ -544,7 +544,10 @@
       <label class="field"><span>Zeichnung</span><select id="dPic" data-change="draft" data-k="pic" data-redraw="1"><option value="">Automatisch</option>${opts(I.picList.map((p) => ({ v: p.key, l: p.label })), d.pic || "")}</select></label>
       ${b ? `<div class="card"><div class="card-h"><h2>Fortschritt</h2><span class="chip gold">${I.ui("trophy")} ${nf(b.w)} kg × ${b.r}</span></div>${chart || `<div class="muted small">${ss.length} Training bisher.</div>`}</div>` : ""}
       <button class="btn primary block" data-act="saveDevice">Speichern</button>
-      ${existing ? `<button class="btn block ghost danger" data-act="delDevice">${I.ui("trash")} Gerät löschen</button>` : ""}`);
+      ${existing ? `<button class="btn block ghost danger" data-act="delDevice">${I.ui("trash")} Gerät löschen</button>` : ""}
+      ${(() => { const on = devLit(d); return on.size ? `<div class="card"><div class="card-h"><h2>Trainierte Muskeln</h2></div>
+        <div class="figs"><figure>${BODY.figure("front", on)}<figcaption>Vorne</figcaption></figure><figure>${BODY.figure("back", on)}<figcaption>Hinten</figcaption></figure></div>
+        <div class="muted small">${trains(d)}</div></div>` : ""; })()}`);
     ui.sheetKind = "device";
   }
   function muscleField(d) {
@@ -563,48 +566,74 @@
   }
 
   // ---------- INFO (muscle chart) ----------
-  const INFO_GROUPS = () => MUSCLES.filter((g) => g !== "Ausdauer");
-  // Which fine muscles light up: one picked muscle, or the whole group (Ganzkörper = everything).
+  // Start view is the whole body; a dropdown picks a group, tapping a muscle or searching filters to it.
+  const ALL_PARTS = () => Object.values(PARTS).flat();
   function litParts(group, part) {
     if (part) return new Set([part]);
-    if (group === "Ganzkörper") return new Set(Object.values(PARTS).flat());
+    if (!group || group === "Ganzkörper") return new Set(ALL_PARTS());
     return new Set(PARTS[group] || []);
+  }
+  // Muscles a device trains: picked fine muscles, or every muscle of a group picked without detail.
+  function devLit(d) {
+    const ps = devParts(d); const out = new Set();
+    for (const g of devMuscles(d)) {
+      if (g === "Ganzkörper") { ALL_PARTS().forEach((x) => out.add(x)); continue; }
+      const all = PARTS[g] || []; const sel = all.filter((x) => ps.includes(x));
+      (sel.length ? sel : all).forEach((x) => out.add(x));
+    }
+    return out;
   }
   // A device trains a muscle if it lists it, or lists the group without naming single muscles of it.
   function devTrains(d, group, part) {
-    if (!devMuscles(d).includes(group)) return false;
-    if (!part) return true;
-    const ps = devParts(d).filter((x) => PART_GROUP[x] === group);
-    return !ps.length || ps.includes(part);
+    if (part) return devLit(d).has(part);
+    if (!group || group === "Ganzkörper") return d.category !== "cardio" || devMuscles(d).length > 0;
+    return devMuscles(d).includes(group);
+  }
+  // Search: muscle and group names plus everyday words.
+  const SYNONYMS = {
+    "lat": "Latissimus", "flügel": "Latissimus", "nacken": "Trapez", "po": "Großer Gesäßmuskel", "hintern": "Großer Gesäßmuskel",
+    "sixpack": "Gerader Bauch", "bauchmuskeln": "Gerader Bauch", "schräge bauchmuskeln": "Seitlicher Bauch", "seitliche bauchmuskeln": "Seitlicher Bauch",
+    "delta": "Seitliche Schulter", "rotatoren": "Rotatorenmanschette", "wade": "Zwillingswadenmuskel", "oberschenkel vorne": "Gerader Schenkelmuskel",
+    "oberschenkel hinten": "Äußerer Beinbeuger", "innenseite oberschenkel": "Adduktoren", "außenseite hüfte": "Abduktoren", "kreuz": "Unterer Rücken"
+  };
+  const norm = (t) => String(t).toLowerCase().replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss").trim();
+  function searchMuscles(q) {
+    const n = norm(q); if (!n) return [];
+    const hits = [];
+    for (const g of MUSCLES) if (g !== "Ausdauer" && norm(g).includes(n)) hits.push({ g, p: "" });
+    for (const pt of ALL_PARTS()) if (norm(pt).includes(n)) hits.push({ g: PART_GROUP[pt], p: pt });
+    for (const [w, pt] of Object.entries(SYNONYMS)) if (norm(w).includes(n) && !hits.some((h) => h.p === pt)) hits.push({ g: PART_GROUP[pt], p: pt, via: w });
+    return hits.slice(0, 8);
+  }
+  function searchHits(q) {
+    const hits = searchMuscles(q);
+    if (!q.trim()) return "";
+    if (!hits.length) return `<div class="muted small">Kein Muskel gefunden. Versuch z. B. „Bizeps“, „Lat“ oder „Po“.</div>`;
+    return hits.map((h) => `<button class="hit" data-act="infoPick" data-g="${esc(h.g)}" data-p="${esc(h.p)}"><b>${esc(h.p || h.g)}</b><small>${h.p ? esc(h.g) : "Muskelgruppe"}${h.via ? ` · „${esc(h.via)}“` : ""}</small></button>`).join("");
   }
   function vInfo() {
-    const g = ui.infoGroup;
-    if (!g) {
-      setTop("Info");
-      const rows = INFO_GROUPS().map((m) => {
-        const on = litParts(m, "");
-        const n = S.devices.filter((d) => devMuscles(d).includes(m)).length;
-        return `<button class="info-row" data-act="infoOpen" data-g="${esc(m)}">
-          <div class="info-mini">${BODY.figure("front", on)}${BODY.figure("back", on)}</div>
-          <div class="grow"><b>${esc(m)}</b><small>${(PARTS[m] || []).length ? `${PARTS[m].length} Muskeln · ` : ""}${n} Geräte</small></div>${I.ui("chevron")}</button>`;
-      }).join("");
-      view.innerHTML = `<div class="muted small">Tippe eine Muskelgruppe an, um sie auf der Abbildung zu sehen.</div><div class="info-list">${rows}</div>`;
-      return;
-    }
-    const parts = PARTS[g] || []; const part = parts.includes(ui.infoPart) ? ui.infoPart : "";
-    const on = litParts(g, part);
-    setTop(g, `<button class="icon-btn" data-act="infoBack" aria-label="Zurück zur Übersicht">${I.ui("back")}</button>`);
-    const chips = parts.length ? `<div class="field"><span>Filter: einzelner Muskel</span><div class="mchips">
+    const g = ui.infoGroup || "Ganzkörper";
+    const parts = g === "Ganzkörper" ? [] : PARTS[g] || [];
+    const part = ui.infoPart || ""; const on = litParts(g, part);
+    setTop("Info");
+    const groups = MUSCLES.filter((m) => m !== "Ausdauer");
+    const chips = parts.length ? `<div class="mchips">
       <button type="button" class="mchip ${part ? "" : "on"}" data-act="infoPart" data-p="">Alle</button>
-      ${parts.map((p) => `<button type="button" class="mchip ${part === p ? "on" : ""}" data-act="infoPart" data-p="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : "";
+      ${parts.map((x) => `<button type="button" class="mchip ${part === x ? "on" : ""}" data-act="infoPart" data-p="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : "";
     const devs = S.devices.filter((d) => devTrains(d, g, part)).sort((a, b) => a.name.localeCompare(b.name, "de"));
-    const where = [...on].some((x) => BODY.has("front", x)) && [...on].some((x) => BODY.has("back", x)) ? "" :
-      [...on].some((x) => BODY.has("front", x)) ? "Liegt auf der Vorderseite." : "Liegt auf der Rückseite.";
-    view.innerHTML = `${chips}
-      <section class="card"><div class="figs"><figure>${BODY.figure("front", on)}<figcaption>Vorne</figcaption></figure>
-        <figure>${BODY.figure("back", on)}<figcaption>Hinten</figcaption></figure></div>
-        <div class="muted small">${esc(part || g)} ist lila markiert. ${where}</div></section>
-      <section class="card"><div class="card-h"><h2>Geräte für ${esc(part || g)}</h2><span class="chip">${devs.length}</span></div>
+    const front = [...on].some((x) => BODY.has("front", x)), back = [...on].some((x) => BODY.has("back", x));
+    const label = part || (g === "Ganzkörper" ? "Ganzer Körper" : g);
+    view.innerHTML = `
+      <div class="field"><span>Muskel suchen</span><input type="search" id="infoSearch" data-input="infoSearch" placeholder="z. B. Bizeps, Lat, Po" value="${esc(ui.infoQ || "")}" autocomplete="off"></div>
+      <div id="infoHits" class="hits">${searchHits(ui.infoQ || "")}</div>
+      <label class="field"><span>Muskelgruppe</span><select id="infoGroup" data-change="infoGroup">${opts(groups.map((m) => ({ v: m, l: m === "Ganzkörper" ? "Ganzkörper (alle Muskeln)" : m })), g)}</select></label>
+      ${chips}
+      <section class="card"><div class="figs"><figure>${BODY.figure("front", on, "infoPart")}<figcaption>Vorne</figcaption></figure>
+        <figure>${BODY.figure("back", on, "infoPart")}<figcaption>Hinten</figcaption></figure></div>
+        <div class="row"><div class="grow small"><b>${esc(label)}</b>${part ? ` · ${esc(PART_GROUP[part])} · ${front && back ? "vorne und hinten" : front ? "vorne" : "hinten"}` : ""}</div>
+          ${part ? `<button class="btn small" data-act="infoPart" data-p="">Filter aufheben</button>` : ""}</div>
+        <div class="muted small">Tippe auf einen Muskel in der Abbildung, um nach ihm zu filtern.</div></section>
+      <section class="card"><div class="card-h"><h2>Geräte für ${esc(label)}</h2><span class="chip">${devs.length}</span></div>
         ${devs.length ? `<div class="dev-list">${devs.map((d) => `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div>${I.ui("chevron")}</button>`).join("")}</div>`
           : `<div class="muted small">Noch kein Gerät trainiert diesen Muskel. Du kannst ihn im Geräte-Formular unter Muskelgruppe auswählen.</div>`}</section>`;
   }
@@ -869,9 +898,14 @@
       pickerSheet();
     },
     // stats
-    infoOpen: (el) => { ui.infoGroup = el.dataset.g; ui.infoPart = ""; render(); window.scrollTo(0, 0); },
-    infoBack: () => { ui.infoGroup = ""; render(); },
-    infoPart: (el) => { ui.infoPart = el.dataset.p; render(); },
+    // Tapping a muscle filters to it (again = back to the group); a muscle outside the group switches the group.
+    infoPart: (el) => {
+      const p = el.dataset.p; const g = ui.infoGroup || "Ganzkörper";
+      ui.infoPart = p && ui.infoPart === p ? "" : p;
+      if (p && g !== "Ganzkörper" && PART_GROUP[p] !== g) ui.infoGroup = PART_GROUP[p];
+      render();
+    },
+    infoPick: (el) => { ui.infoGroup = el.dataset.g; ui.infoPart = el.dataset.p; ui.infoQ = ""; render(); window.scrollTo(0, 0); },
     calNav: (el) => { ui.cal = new Date(ui.cal.getFullYear(), ui.cal.getMonth() + +el.dataset.d, 1); render(); },
     openDay: (el) => {
       const ws = S.workouts.filter((w) => dayKey(w.start) === el.dataset.k);
@@ -886,6 +920,7 @@
     setW: (el) => { S.active.entries[+el.dataset.e].sets[+el.dataset.s].w = +el.value; save(); render(); },
     setR: (el) => { S.active.entries[+el.dataset.e].sets[+el.dataset.s].r = +el.value; save(); render(); },
     cf: (el) => { ui.cardioForm[el.dataset.k] = el.dataset.k === "deviceId" ? el.value : +el.value; if (el.dataset.k === "deviceId") render(); },
+    infoGroup: (el) => { ui.infoGroup = el.value; ui.infoPart = ""; render(); },
     pickMuscle: (el) => { ui.pick.muscle = el.value; pickerSheet(); },
     devMuscle: (el) => { ui.devMuscle = el.value; render(); },
     planSel: (el) => { ui.plan = el.value; render(); },
@@ -918,7 +953,9 @@
   };
   const IN = {
     entryNote: (el) => { S.active.entries[+el.dataset.e].note = el.value; save(); },
-    draft: (el) => { ui.draft[el.dataset.k] = el.value; }
+    draft: (el) => { ui.draft[el.dataset.k] = el.value; },
+    // Only the hit list updates while typing, so the search field keeps focus.
+    infoSearch: (el) => { ui.infoQ = el.value; $("#infoHits").innerHTML = searchHits(el.value); }
   };
 
   document.addEventListener("click", (e) => {

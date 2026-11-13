@@ -61,12 +61,14 @@
   const path = (pts) => "M" + pts.map(([x, y]) => `${x} ${y}`).join("L") + "Z";
   const mirror = (pts) => pts.map(([x, y]) => [200 - x, y]);
   // Shapes that already span the middle (x reaches 99) are mirrored too; the halves meet at the center line.
-  function figure(view, on) {
+  // act: optional data-act name; every muscle then becomes tappable and carries its name in data-p.
+  function figure(view, on, act) {
     const shapes = view === "front" ? F : B;
     let g = `<g class="bn">${NEUTRAL[view]}</g>`;
     for (const [name, polys] of Object.entries(shapes)) {
       const cls = on.has(name) ? "bm on" : "bm";
-      for (const p of polys) g += `<path class="${cls}" d="${path(p)}"/><path class="${cls}" d="${path(mirror(p))}"/>`;
+      const tap = act ? ` data-act="${act}" data-p="${name}"` : "";
+      for (const p of polys) g += `<path class="${cls}"${tap} d="${path(p)}"><title>${name}</title></path><path class="${cls}"${tap} d="${path(mirror(p))}"><title>${name}</title></path>`;
     }
     return `<svg class="body-fig" viewBox="20 6 160 418" role="img" aria-label="${view === "front" ? "Vorderansicht" : "Rückansicht"}">${g}</svg>`;
   }

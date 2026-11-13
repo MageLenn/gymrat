@@ -1,6 +1,6 @@
 // GymRat service worker: caches the app shell so the app runs fully offline.
 // Bump VERSION whenever any app file changes, so phones fetch the new files.
-const VERSION = "gymrat-v7";
+const VERSION = "gymrat-v8";
 const FILES = [
   "./",
   "./index.html",

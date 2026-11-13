@@ -110,7 +110,7 @@ main {
 /* dropdowns: native selects so iOS shows its wheel picker */
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field > span { font-size: 12px; color: var(--muted); }
-select, input[type="text"], input[type="number"], input[type="date"], textarea {
+select, input[type="text"], input[type="search"], input[type="number"], input[type="date"], textarea {
   width: 100%; min-height: 44px; border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface-2); padding: 0 12px; font-size: 16px;
 }
@@ -305,3 +305,13 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
 .body-fig .bn > * { fill: var(--surface-2); }
 .body-fig .bm { fill: #3a3346; stroke: var(--bg); stroke-width: 1.2; stroke-linejoin: round; transition: fill .2s; }
 .body-fig .bm.on { fill: var(--accent); }
+.body-fig .bm[data-act] { cursor: pointer; }
+.body-fig .bm[data-act]:hover { fill: #4a4159; }
+.body-fig .bm.on[data-act]:hover { fill: var(--accent-hi); }
+.hits { display: flex; flex-direction: column; gap: 6px; }
+.hits:empty { display: none; }
+.hit {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; width: 100%;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); color: inherit;
+}
+.hit small { color: var(--muted); font-size: 12px; }
