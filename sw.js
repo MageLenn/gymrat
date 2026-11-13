@@ -1,6 +1,6 @@
 // GymRat service worker: caches the app shell so the app runs fully offline.
 // Bump VERSION whenever any app file changes, so phones fetch the new files.
-const VERSION = "gymrat-v6";
+const VERSION = "gymrat-v7";
 const FILES = [
   "./",
   "./index.html",
@@ -8,6 +8,7 @@ const FILES = [
   "./app.js",
   "./icons.js",
   "./seed.js",
+  "./body.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",

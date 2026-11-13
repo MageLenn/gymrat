@@ -259,9 +259,9 @@
   function setTop(title, action = "") { $("#viewTitle").textContent = title; $("#topAction").innerHTML = action; }
   function render() {
     document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === ui.tab));
-    ({ start: vStart, training: vTraining, geraete: vDevices, statistik: vStats })[ui.tab]();
+    ({ start: vStart, training: vTraining, geraete: vDevices, info: vInfo, statistik: vStats })[ui.tab]();
   }
-  function go(tab) { ui.tab = tab; render(); window.scrollTo(0, 0); }
+  function go(tab) { if (tab === "info" && ui.tab === "info") ui.infoGroup = ""; ui.tab = tab; render(); window.scrollTo(0, 0); }
 
   function openSheet(html) {
     const wasClosed = $("#sheet").hidden; ui.sheetKind = null;
@@ -562,6 +562,53 @@
     const y = $(".sheet-panel").scrollTop; deviceSheet(); $(".sheet-panel").scrollTop = y;
   }
 
+  // ---------- INFO (muscle chart) ----------
+  const INFO_GROUPS = () => MUSCLES.filter((g) => g !== "Ausdauer");
+  // Which fine muscles light up: one picked muscle, or the whole group (Ganzkörper = everything).
+  function litParts(group, part) {
+    if (part) return new Set([part]);
+    if (group === "Ganzkörper") return new Set(Object.values(PARTS).flat());
+    return new Set(PARTS[group] || []);
+  }
+  // A device trains a muscle if it lists it, or lists the group without naming single muscles of it.
+  function devTrains(d, group, part) {
+    if (!devMuscles(d).includes(group)) return false;
+    if (!part) return true;
+    const ps = devParts(d).filter((x) => PART_GROUP[x] === group);
+    return !ps.length || ps.includes(part);
+  }
+  function vInfo() {
+    const g = ui.infoGroup;
+    if (!g) {
+      setTop("Info");
+      const rows = INFO_GROUPS().map((m) => {
+        const on = litParts(m, "");
+        const n = S.devices.filter((d) => devMuscles(d).includes(m)).length;
+        return `<button class="info-row" data-act="infoOpen" data-g="${esc(m)}">
+          <div class="info-mini">${BODY.figure("front", on)}${BODY.figure("back", on)}</div>
+          <div class="grow"><b>${esc(m)}</b><small>${(PARTS[m] || []).length ? `${PARTS[m].length} Muskeln · ` : ""}${n} Geräte</small></div>${I.ui("chevron")}</button>`;
+      }).join("");
+      view.innerHTML = `<div class="muted small">Tippe eine Muskelgruppe an, um sie auf der Abbildung zu sehen.</div><div class="info-list">${rows}</div>`;
+      return;
+    }
+    const parts = PARTS[g] || []; const part = parts.includes(ui.infoPart) ? ui.infoPart : "";
+    const on = litParts(g, part);
+    setTop(g, `<button class="icon-btn" data-act="infoBack" aria-label="Zurück zur Übersicht">${I.ui("back")}</button>`);
+    const chips = parts.length ? `<div class="field"><span>Filter: einzelner Muskel</span><div class="mchips">
+      <button type="button" class="mchip ${part ? "" : "on"}" data-act="infoPart" data-p="">Alle</button>
+      ${parts.map((p) => `<button type="button" class="mchip ${part === p ? "on" : ""}" data-act="infoPart" data-p="${esc(p)}">${esc(p)}</button>`).join("")}</div></div>` : "";
+    const devs = S.devices.filter((d) => devTrains(d, g, part)).sort((a, b) => a.name.localeCompare(b.name, "de"));
+    const where = [...on].some((x) => BODY.has("front", x)) && [...on].some((x) => BODY.has("back", x)) ? "" :
+      [...on].some((x) => BODY.has("front", x)) ? "Liegt auf der Vorderseite." : "Liegt auf der Rückseite.";
+    view.innerHTML = `${chips}
+      <section class="card"><div class="figs"><figure>${BODY.figure("front", on)}<figcaption>Vorne</figcaption></figure>
+        <figure>${BODY.figure("back", on)}<figcaption>Hinten</figcaption></figure></div>
+        <div class="muted small">${esc(part || g)} ist lila markiert. ${where}</div></section>
+      <section class="card"><div class="card-h"><h2>Geräte für ${esc(part || g)}</h2><span class="chip">${devs.length}</span></div>
+        ${devs.length ? `<div class="dev-list">${devs.map((d) => `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${trains(d)}</small></div>${I.ui("chevron")}</button>`).join("")}</div>`
+          : `<div class="muted small">Noch kein Gerät trainiert diesen Muskel. Du kannst ihn im Geräte-Formular unter Muskelgruppe auswählen.</div>`}</section>`;
+  }
+
   // ---------- STATS ----------
   function vStats() {
     setTop("Statistik");
@@ -822,6 +869,9 @@
       pickerSheet();
     },
     // stats
+    infoOpen: (el) => { ui.infoGroup = el.dataset.g; ui.infoPart = ""; render(); window.scrollTo(0, 0); },
+    infoBack: () => { ui.infoGroup = ""; render(); },
+    infoPart: (el) => { ui.infoPart = el.dataset.p; render(); },
     calNav: (el) => { ui.cal = new Date(ui.cal.getFullYear(), ui.cal.getMonth() + +el.dataset.d, 1); render(); },
     openDay: (el) => {
       const ws = S.workouts.filter((w) => dayKey(w.start) === el.dataset.k);
