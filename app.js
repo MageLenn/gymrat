@@ -23,7 +23,49 @@
   const range = (a, b, s = 1) => { const out = []; for (let v = a; v <= b + 1e-9; v += s) out.push(r2(v)); return out; };
 
   // ---------- constants ----------
-  const MUSCLES = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Unterarme", "Bauch", "Quadrizeps", "Beinbeuger", "Gesäß", "Waden", "Adduktoren / Abduktoren", "Ganzkörper"];
+  // Muscle groups and the finer muscles inside each group (names are unique across groups).
+  const PARTS = {
+    Brust: ["Obere Brust", "Mittlere Brust", "Untere Brust"],
+    "Rücken": ["Latissimus", "Trapez", "Mittlerer Rücken", "Unterer Rücken"],
+    Schultern: ["Vordere Schulter", "Seitliche Schulter", "Hintere Schulter", "Rotatorenmanschette"],
+    Bizeps: ["Bizeps", "Brachialis"],
+    Trizeps: ["Langer Trizepskopf", "Seitlicher Trizepskopf", "Innerer Trizepskopf"],
+    Unterarme: ["Brachioradialis", "Unterarmbeuger", "Unterarmstrecker"],
+    Bauch: ["Gerader Bauch", "Seitlicher Bauch", "Unterer Bauch", "Hüftbeuger"],
+    Quadrizeps: ["Gerader Schenkelmuskel", "Äußerer Schenkelmuskel", "Innerer Schenkelmuskel"],
+    Beinbeuger: ["Äußerer Beinbeuger", "Innerer Beinbeuger"],
+    "Gesäß": ["Großer Gesäßmuskel", "Mittlerer Gesäßmuskel"],
+    Waden: ["Zwillingswadenmuskel", "Schollenmuskel"],
+    "Adduktoren / Abduktoren": ["Adduktoren", "Abduktoren"],
+    "Ganzkörper": [],
+    Ausdauer: []
+  };
+  const MUSCLES = Object.keys(PARTS);
+  const PART_GROUP = Object.fromEntries(Object.entries(PARTS).flatMap(([g, ps]) => ps.map((p) => [p, g])));
+  // Turns an old free-text "trains" description into groups and fine muscles.
+  const TEXT_MAP = [
+    ["obere brust", ["Obere Brust"]], ["untere brust", ["Untere Brust"]], ["brust", ["Mittlere Brust"]],
+    ["vordere & seitliche schulter", ["Vordere Schulter", "Seitliche Schulter"]], ["vordere schulter", ["Vordere Schulter"]],
+    ["seitliche schulter", ["Seitliche Schulter"]], ["hintere schulter", ["Hintere Schulter"]], ["rotatoren", ["Rotatorenmanschette"]], ["schulter", ["@Schultern"]],
+    ["langer kopf", ["Langer Trizepskopf"]], ["trizeps", PARTS.Trizeps],
+    ["brachialis", ["Brachialis"]], ["bizeps", ["Bizeps"]], ["unterarm", ["Brachioradialis"]],
+    ["latissimus", ["Latissimus"]], ["oberer rücken", ["Trapez"]], ["trapez", ["Trapez"]], ["mittlerer rücken", ["Mittlerer Rücken"]], ["unterer rücken", ["Unterer Rücken"]],
+    ["gerader bauch", ["Gerader Bauch"]], ["seitliche bauch", ["Seitlicher Bauch"]], ["unterer bauch", ["Unterer Bauch"]], ["hüftbeuger", ["Hüftbeuger"]], ["rumpf", ["Gerader Bauch", "Seitlicher Bauch"]],
+    ["quadrizeps", PARTS.Quadrizeps], ["beinbeuger", PARTS.Beinbeuger], ["gesäß", ["Großer Gesäßmuskel"]], ["waden", PARTS.Waden], ["adduktoren", ["Adduktoren"]],
+    ["beine", ["@Quadrizeps", "@Beinbeuger", "@Waden"]], ["arme", ["@Bizeps", "@Trizeps"]], ["ganzkörper", ["@Ganzkörper"]], ["ausdauer", ["@Ausdauer"]]
+  ];
+  function partsFromText(text) {
+    const parts = [], groups = [];
+    for (const item of String(text || "").split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)) {
+      const hit = TEXT_MAP.find(([k]) => item.includes(k)); if (!hit) continue;
+      for (const v of hit[1]) {
+        const g = v[0] === "@" ? v.slice(1) : PART_GROUP[v];
+        if (v[0] !== "@" && !parts.includes(v)) parts.push(v);
+        if (g && !groups.includes(g)) groups.push(g);
+      }
+    }
+    return { parts, groups };
+  }
   const MUSCLE_PIC = { Brust: "bench", "Rücken": "pulldown", Schultern: "shoulder", Bizeps: "curl", Trizeps: "triceps", Unterarme: "curl", Bauch: "abs", Quadrizeps: "legpress", Beinbeuger: "legext", "Gesäß": "legpress", Waden: "calf", "Adduktoren / Abduktoren": "legext", "Ganzkörper": "generic" };
   const CARDIO = {
     bike: { l: "Fahrrad", mode: "level", pic: "bike" },
@@ -94,7 +136,14 @@
   const hasMuscle = (d, m) => !m || devMuscles(d).includes(m);
   const devPic = (d) => d.pic || (d.category === "cardio" ? (CARDIO[d.cardioType] || CARDIO.other).pic : MUSCLE_PIC[devMuscles(d)[0]] || "generic");
   const thumb = (d, cls = "") => `<div class="thumb ${cls}">${d && photos[d.id] ? `<img src="${photos[d.id]}" alt="">` : I.pic(d ? devPic(d) : "generic")}</div>`;
-  const trains = (d) => esc((d && (d.targets || devMuscles(d).join(", "))) || "");
+  const devParts = (d) => (d && Array.isArray(d.parts) ? d.parts : []);
+  function trains(d) {
+    if (!d) return "";
+    const ps = devParts(d);
+    const out = devMuscles(d).flatMap((g) => { const all = PARTS[g] || []; const sel = all.filter((p) => ps.includes(p));
+      return sel.length && sel.length < all.length ? sel : [g]; });
+    return esc(out.join(", ") || d.targets || "");
+  }
   const muscleList = () => [...new Set([...MUSCLES, ...S.devices.flatMap(devMuscles)])];
   const kraftDevices = () => S.devices.filter((d) => d.category !== "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
   const cardioDevices = () => S.devices.filter((d) => d.category === "cardio").sort((a, b) => a.name.localeCompare(b.name, "de"));
@@ -341,7 +390,7 @@
         <button class="done-btn ${s.done ? "on" : ""}" data-act="toggleSet" data-e="${ei}" data-s="${si}" aria-label="Satz erledigt">${I.ui("check")}</button></div>`;
     }).join("");
     return `<section class="card ex">
-      <div class="ex-h">${thumb(d)}<div class="grow"><b style="display:block;line-height:1.25;overflow-wrap:anywhere">${esc(d.name)}</b><span class="muted small">Trainiert: ${trains(d)}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
+      <div class="ex-h">${thumb(d)}<div class="grow"><b style="display:block;line-height:1.25;overflow-wrap:anywhere">${esc(d.name)}</b><span class="muted small">${trains(d)}${best ? ` · Bestwert ${nf(best.w)} kg × ${best.r}` : ""}</span></div>
         <button class="icon-btn" data-act="infoToggle" data-e="${ei}" aria-label="Erklärung" ${d.info ? "" : "hidden"}>?</button>
         <button class="icon-btn" data-act="rmEntry" data-e="${ei}" aria-label="Gerät entfernen">${I.ui("trash")}</button></div>
       ${e.showInfo && d.info ? `<div class="hint">${esc(d.info)}</div>` : ""}
@@ -452,7 +501,7 @@
     const list = (isCardio ? cardioDevices() : kraftDevices()).filter((d) => isCardio || hasMuscle(d, ui.devMuscle));
     const rows = list.map((d) => {
       const b = !isCardio && bestOf(d.id);
-      const sub = isCardio ? `${(CARDIO[d.cardioType] || CARDIO.other).l}${d.targets ? ` · ${trains(d)}` : ""}` : `${trains(d)}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
+      const sub = isCardio ? `${(CARDIO[d.cardioType] || CARDIO.other).l}${devMuscles(d).length ? ` · ${trains(d)}` : ""}` : `${trains(d)}${d.defaultSets && d.defaultSets.length ? ` · Standard ${d.defaultSets.map((w) => nf(w)).join("/")} kg` : ""}`;
       return `<button class="dev" data-act="openDevice" data-id="${d.id}">${thumb(d)}<div class="grow"><b class="ellipsis">${esc(d.name)}</b><small>${sub}</small></div>${b ? `<span class="chip gold num">${nf(b.w)} kg</span>` : ""}${I.ui("chevron")}</button>`;
     }).join("");
     view.innerHTML = `${seg}
@@ -481,18 +530,16 @@
         <input type="file" id="dPhoto" accept="image/*" capture="environment" data-change="photo" hidden></div>
       <label class="field"><span>Name</span><input type="text" id="dName" data-input="draft" data-k="name" value="${esc(d.name)}" placeholder="${isCardio ? "z. B. Fahrrad 1" : "z. B. Brustpresse oder Kurzhantel: Seitheben"}" autocomplete="off"></label>
       <label class="field"><span>Bereich</span><select id="dCat" data-change="draft" data-k="category" data-redraw="1">${opts([{ v: "kraft", l: "Krafttraining" }, { v: "cardio", l: "Cardio" }], d.category)}</select></label>
+      ${muscleField(d)}
       ${isCardio
         ? `<label class="field"><span>Art</span><select id="dType" data-change="draft" data-k="cardioType" data-redraw="1">${opts(Object.entries(CARDIO).map(([v, c]) => ({ v, l: `${c.l} (${c.mode === "speed" ? "Geschwindigkeit" : "Stufe 1–20"})` })), d.cardioType)}</select></label>`
-        : `<div class="field"><span>Muskelgruppen (mehrere möglich, erste = Hauptgruppe)</span>
-             <div class="mchips">${muscleList().map((m) => { const i = devMuscles(d).indexOf(m);
-               return `<button type="button" class="mchip ${i >= 0 ? "on" : ""}" data-act="toggleMuscle" data-m="${esc(m)}" aria-pressed="${i >= 0}">${i === 0 ? "★ " : ""}${esc(m)}</button>`; }).join("")}</div></div>
+        : `
            <div class="field"><span>Standardgewicht pro Satz</span>
              <div class="stack">${dsRows || `<div class="muted small">Kein Standard: Jeder Satz startet mit dem Gewicht vom letzten Mal.</div>`}</div>
              <button class="btn small" data-act="dsAdd">${I.ui("plus")} Satz</button></div>
            <div class="grid2"><label class="field"><span>Wdh. von</span><select id="dRepMin" data-change="draft" data-k="repMin" data-num="1">${opts(range(1, 30), d.repMin)}</select></label>
            <label class="field"><span>Wdh. bis</span><select id="dRepMax" data-change="draft" data-k="repMax" data-num="1">${opts(range(1, 30), d.repMax)}</select></label></div>
            <div class="muted small">Schaffst du in allen Sätzen „Wdh. bis“, schlägt GymRat beim nächsten Mal 2,5 kg mehr vor.</div>`}
-      <label class="field"><span>Trainiert</span><input type="text" id="dTargets" data-input="draft" data-k="targets" value="${esc(d.targets || "")}" placeholder="z. B. Brust, vordere Schulter, Trizeps" autocomplete="off"></label>
       <label class="field"><span>Erklärung</span><textarea id="dInfo" data-input="draft" data-k="info" placeholder="Kurz: Wie wird das Gerät benutzt?">${esc(d.info || "")}</textarea></label>
       <label class="field"><span>Zeichnung</span><select id="dPic" data-change="draft" data-k="pic" data-redraw="1"><option value="">Automatisch</option>${opts(I.picList.map((p) => ({ v: p.key, l: p.label })), d.pic || "")}</select></label>
       ${b ? `<div class="card"><div class="card-h"><h2>Fortschritt</h2><span class="chip gold">${I.ui("trophy")} ${nf(b.w)} kg × ${b.r}</span></div>${chart || `<div class="muted small">${ss.length} Training bisher.</div>`}</div>` : ""}
@@ -500,10 +547,18 @@
       ${existing ? `<button class="btn block ghost danger" data-act="delDevice">${I.ui("trash")} Gerät löschen</button>` : ""}`);
     ui.sheetKind = "device";
   }
-  function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])], muscles: [...devMuscles(d)] }; deviceSheet(); }
+  function muscleField(d) {
+    const ms = devMuscles(d), ps = devParts(d);
+    const groups = muscleList().map((m) => { const i = ms.indexOf(m);
+      return `<button type="button" class="mchip ${i >= 0 ? "on" : ""}" data-act="toggleMuscle" data-m="${esc(m)}" aria-pressed="${i >= 0}">${i === 0 ? "★ " : ""}${esc(m)}</button>`; }).join("");
+    const fine = ms.filter((g) => (PARTS[g] || []).length).map((g) => `<div class="mparts"><span class="muted small">${esc(g)}</span><div class="mchips">${PARTS[g].map((p) =>
+      `<button type="button" class="mchip sm ${ps.includes(p) ? "on" : ""}" data-act="togglePart" data-p="${esc(p)}" aria-pressed="${ps.includes(p)}">${esc(p)}</button>`).join("")}</div></div>`).join("");
+    return `<div class="field"><span>Muskelgruppe (mehrere möglich, ★ = Hauptgruppe)</span><div class="mchips">${groups}</div>${fine}</div>`;
+  }
+  function openDeviceDraft(d) { ui.draft = { ...d, defaultSets: [...(d.defaultSets || [])], muscles: [...devMuscles(d)], parts: [...devParts(d)] }; deviceSheet(); }
   // Re-render the open device sheet, keeping typed text and scroll position.
   function redrawDevice() {
-    ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value; if ($("#dTargets")) ui.draft.targets = $("#dTargets").value;
+    ui.draft.name = $("#dName").value; if ($("#dInfo")) ui.draft.info = $("#dInfo").value;
     const y = $(".sheet-panel").scrollTop; deviceSheet(); $(".sheet-panel").scrollTop = y;
   }
 
@@ -585,7 +640,7 @@
     return { id: uid(), name: String(x.name || "").trim(), category: cat, muscle: x.muscle || x.muskelgruppe || (cat === "kraft" ? "Ganzkörper" : ""),
       muscles: Array.isArray(x.muscles) && x.muscles.length ? x.muscles.map(String) : [x.muscle || x.muskelgruppe || "Ganzkörper"],
       repMin: Number(x.repMin) || 8, repMax: Number(x.repMax) || 12, cardioType: cat === "cardio" ? ctKey : undefined, pic: x.pic || "",
-      info: String(x.info || x.erklaerung || "").trim(), targets: String(x.targets || x.trainiert || "").trim(), defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
+      info: String(x.info || x.erklaerung || "").trim(), targets: String(x.targets || x.trainiert || "").trim(), parts: Array.isArray(x.parts) ? x.parts.filter((q) => PART_GROUP[q]) : undefined, defaultSets: Array.isArray(x.defaultSets) ? x.defaultSets.map(Number).filter((v) => !isNaN(v)) : [] };
   }
   function importDevices(json) {
     const arr = Array.isArray(json) ? json : json.devices || json.geraete || [];
@@ -617,6 +672,17 @@
     }
     for (const p of seed.plans) mergePlan(p, byName);
     S.seed = seed.version; save(true);
+  }
+  // Devices from before fine muscles existed: derive them from the old "trains" text once.
+  function migrateParts() {
+    let changed = false;
+    for (const d of S.devices) {
+      if (Array.isArray(d.parts)) { if (d.targets !== undefined) { delete d.targets; changed = true; } continue; }
+      const { parts, groups } = partsFromText(d.targets);
+      d.parts = parts; d.muscles = [...devMuscles(d), ...groups.filter((g) => !devMuscles(d).includes(g))];
+      d.muscle = d.muscles[0] || ""; delete d.targets; changed = true;
+    }
+    if (changed) save(true);
   }
   function planSheet() {
     const p = ui.draft; const existing = !!planById(p.id);
@@ -702,19 +768,26 @@
     toggleMuscle: (el) => {
       const m = el.dataset.m; const cur = devMuscles(ui.draft);
       ui.draft.muscles = cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m];
+      if (!ui.draft.muscles.includes(m)) ui.draft.parts = devParts(ui.draft).filter((p) => PART_GROUP[p] !== m);
       ui.draft.muscle = ui.draft.muscles[0] || ""; redrawDevice();
+    },
+    togglePart: (el) => {
+      const p = el.dataset.p; const ps = devParts(ui.draft);
+      ui.draft.parts = ps.includes(p) ? ps.filter((x) => x !== p) : [...ps, p];
+      redrawDevice();
     },
     hideInstall: () => { try { localStorage.setItem("gymrat-hide-install", "1"); } catch {} render(); },
     infoToggle: (el) => { const e = S.active.entries[+el.dataset.e]; e.showInfo = !e.showInfo; render(); },
     saveDevice: async (_, opt = {}) => {
-      const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim(); d.targets = ($("#dTargets") ? $("#dTargets").value : d.targets || "").trim();
+      const d = ui.draft; d.name = ($("#dName").value || "").trim(); d.info = ($("#dInfo") ? $("#dInfo").value : d.info || "").trim();
       if (!d.name && opt.dismiss && !devById(d.id)) { closeSheet(); return; }
       if (!d.name) { toast("Gib dem Gerät einen Namen"); $("#dName").focus(); return; }
       if (d.category === "kraft") d.muscles = devMuscles(d);
       if (d.category === "kraft" && !d.muscles.length) { toast("Wähle mindestens eine Muskelgruppe"); return; }
       if (d.category === "kraft" && d.repMax < d.repMin) { toast("„Wdh. von“ muss kleiner sein als „Wdh. bis“"); return; }
       if (S.devices.some((x) => x.id !== d.id && x.name.toLowerCase() === d.name.toLowerCase())) { toast("Es gibt schon ein Gerät mit diesem Namen"); return; }
-      const { photo, ...rec } = d; delete rec.step; if (rec.category === "cardio") { delete rec.muscle; delete rec.muscles; delete rec.defaultSets; } else { delete rec.cardioType; rec.muscle = rec.muscles[0]; }
+      const { photo, ...rec } = d; delete rec.step; delete rec.targets; rec.muscles = devMuscles(rec); rec.muscle = rec.muscles[0] || "";
+      if (rec.category === "cardio") delete rec.defaultSets; else delete rec.cardioType;
       const i = S.devices.findIndex((x) => x.id === d.id); if (i >= 0) S.devices[i] = rec; else S.devices.push(rec);
       if (photo) { photos[d.id] = photo; idb.put("photos", d.id, photo); } else if (photo === null) { delete photos[d.id]; idb.del("photos", d.id); }
       save(true); closeSheet(); render(); toast(i >= 0 ? "Gerät gespeichert" : "Gerät angelegt");
@@ -840,7 +913,7 @@
       if (st) loadState(st);
       photos = await idb.all("photos");
     } catch { toast("Speicher nicht verfügbar – Daten werden nicht gesichert"); }
-    applySeed();
+    applySeed(); migrateParts();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
     if (S.active) ui.tab = "training";
     render();

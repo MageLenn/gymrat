@@ -193,6 +193,8 @@ textarea { padding: 10px 12px; min-height: 70px; resize: vertical; }
   background: var(--surface-2); color: var(--muted); font-size: 14px; font-weight: 600;
 }
 .mchip.on { background: var(--accent-lo); border-color: var(--accent); color: var(--accent-hi); }
+.mchip.sm { min-height: 32px; padding: 0 10px; font-size: 13px; font-weight: 500; }
+.mparts { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 0 12px; border-left: 2px solid var(--line); margin-top: 4px; }
 .dev small { color: var(--muted); font-size: 12px; }
 .check { width: 26px; height: 26px; border-radius: 8px; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; flex: none; }
 .check.on { background: var(--accent); border-color: var(--accent); color: #fff; }
